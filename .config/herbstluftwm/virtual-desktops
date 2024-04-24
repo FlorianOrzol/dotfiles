@@ -1,0 +1,118 @@
+#!/bin/bash
+#
+#  _____  ______    
+# |  ___||  __  |    
+# | |__  | |  | |   
+# |  __| | |  | |  
+# | |    | |__| |
+# \_|    \______| Florian Orzol
+#
+# my virtual-desktops script for herbstluftwm
+
+# list of monitors
+MONITOR_UP_LEFT=0
+MONITOR_UP_RIGHT=2
+MONITOR_BIG=1
+
+# number of desktops
+DESKTOPS=4
+
+# temp file for current desktop
+TEMP_CUR_DESKTOP=/tmp/cur_desktop
+
+
+
+function config() {
+    # remove default tag
+    herbstclient remove default
+    # add tags for each desktop
+    for desktop in $(seq 1 $DESKTOPS); do
+        herbstclient add $desktop/$MONITOR_UP_LEFT
+        herbstclient use $desktop/$MONITOR_UP_LEFT
+        herbstclient set_layout max
+        herbstclient add $desktop/$MONITOR_UP_RIGHT
+        herbstclient use $desktop/$MONITOR_UP_RIGHT
+        herbstclient set_layout max
+        herbstclient add $desktop/$MONITOR_BIG
+        herbstclient use $desktop/$MONITOR_BIG
+        herbstclient set_layout horizontal
+    done
+
+    # set default desktop
+    herbstclient focus_monitor $MONITOR_UP_LEFT
+    herbstclient use 1/$MONITOR_UP_LEFT
+    herbstclient focus_monitor $MONITOR_UP_RIGHT
+    herbstclient use 1/$MONITOR_UP_RIGHT
+    herbstclient focus_monitor $MONITOR_BIG
+    herbstclient use 1/$MONITOR_BIG
+
+    # set current desktop to 1 in temp file
+    echo "1" > $TEMP_CUR_DESKTOP
+}
+
+# switch monitor to tag for current desktop 
+function switch_tab() {
+    local monitor=$1
+    local desktop=$2
+
+    herbstclient focus_monitor $monitor
+    herbstclient use $desktop/$monitor
+}
+
+# switch desktop
+function switch() {
+    # get current desktop, if temp-file not exist, set to 1
+    if [[ ! -f $TEMP_CUR_DESKTOP ]]; then
+        echo "1" > $TEMP_CUR_DESKTOP
+    fi
+    cur_desktop=$(cat $TEMP_CUR_DESKTOP)
+
+    # set new desktop to current +/- $1
+    new_desktop=$((cur_desktop $1))
+
+    # if new desktop is greater than number of desktops, set to 1
+    if [ $new_desktop -gt $DESKTOPS ]; then new_desktop=1; fi
+    # if new desktop is less than 1, set to max number of desktops
+    if [ $new_desktop -lt 1 ]; then new_desktop=$DESKTOPS; fi
+
+    # get focused monitor
+    cur_monitor=$(herbstclient list_monitors | grep "FOCUS" | grep -oP "^\d")
+
+    switch_tab $MONITOR_UP_LEFT $new_desktop
+    switch_tab $MONITOR_UP_RIGHT $new_desktop
+    switch_tab $MONITOR_BIG $new_desktop
+    
+    # set focus to focused monitor
+    herbstclient focus_monitor $cur_monitor
+
+    # write new desktop to temp file
+    echo $new_desktop > $TEMP_CUR_DESKTOP
+}
+
+function move() {
+    # get current desktop, if temp-file not exist, set to 1
+    if [[ ! -f $TEMP_CUR_DESKTOP ]]; then
+        echo "1" > $TEMP_CUR_DESKTOP
+    fi
+    cur_desktop=$(cat $TEMP_CUR_DESKTOP)
+    
+    # set new desktop to current +/- $1
+    new_desktop=$((cur_desktop $1))
+
+    # if new desktop is greater than 4, set to 1
+    if [ $new_desktop -gt 4 ]; then new_desktop=1; fi
+    # if new desktop is less than 1, set to 4
+    if [ $new_desktop -lt 1 ]; then new_desktop=4; fi
+
+    # get focused monitor
+    cur_monitor=$(herbstclient list_monitors | grep "FOCUS" | grep -oP "^\d")
+    
+    # move current desktop to new desktop on focused monitor
+    herbstclient move $new_desktop/$cur_monitor
+    
+    # finally switch to new desktop
+    switch $1
+}
+
+$1 $2
+
