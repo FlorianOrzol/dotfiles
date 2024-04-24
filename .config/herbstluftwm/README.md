@@ -1,11 +1,12 @@
-# Allgemein
+# General
 
-Das ist meine Konfiguration für den Desktopmanager Herbstluftwm.
+This is my configuration for the Herbstluftwm desktop manager.
 
-Da ich mit mehreren Monitoren arbeite, möchte ich nicht nur durch einzelne tags switchen, sondern ebenso wie in konventionellen Desktopmanagern per Shortcuts durch komplette virtuelle Desktopumgebungen.
+I work with multiple monitors.
+In addition to my "work monitor," I have two additional "monitors" that usually serve as sources of information related to my work topic, which is why I chose this approach.
 
-Neben meinem "Arbeitsmonitor" habe ich noch zwei "Informationsmonitore" die für mich i.d.R. als Informationsquelle zu meinem Arbeitsthema dienen, weshalb ich mich für diese Variante entschieden habe.   
+In this setup, I not only want to switch between individual tags but also navigate through complete virtual desktop environments using shortcuts, similar to conventional desktop managers.
 
-Um das zu realisieren dient die Datei virtual-desktops.
+To achieve this, the virtual-desktops file is used.
 
 ![Screenshot](https://github.com/FlorianOrzol/dotfiles/blob/main/img/screenshot.png)
