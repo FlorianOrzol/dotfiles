@@ -1,3 +1,3 @@
 # Dotfiles
 
-In diesem Repo stelle ich nach und nach meine Konfigurationen zur verfügung.
+In this repository, I gradually provide my configurations.
