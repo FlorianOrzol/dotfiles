@@ -72,7 +72,7 @@ function switch() {
 
     # if new desktop is greater than number of desktops, set to 1
     if [ $new_desktop -gt $DESKTOPS ]; then new_desktop=1; fi
-    # if new desktop is less than 1, set to max number of desktops
+    # if new desktop is less than 1, set to number of desktops
     if [ $new_desktop -lt 1 ]; then new_desktop=$DESKTOPS; fi
 
     # get focused monitor
@@ -99,10 +99,10 @@ function move() {
     # set new desktop to current +/- $1
     new_desktop=$((cur_desktop $1))
 
-    # if new desktop is greater than 4, set to 1
-    if [ $new_desktop -gt 4 ]; then new_desktop=1; fi
-    # if new desktop is less than 1, set to 4
-    if [ $new_desktop -lt 1 ]; then new_desktop=4; fi
+    # if new desktop is greater than number of desktops, set to 1
+    if [ $new_desktop -gt $DESKTOPS ]; then new_desktop=1; fi
+    # if new desktop is less than 1, set to number of desktops
+    if [ $new_desktop -lt 1 ]; then new_desktop=$DESKTOPS; fi
 
     # get focused monitor
     cur_monitor=$(herbstclient list_monitors | grep "FOCUS" | grep -oP "^\d")
