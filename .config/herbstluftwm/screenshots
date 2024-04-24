@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+#  _____  ______    
+# |  ___||  __  |    
+# | |__  | |  | |   
+# |  __| | |  | |  
+# | |    | |__| |
+# \_|    \______| Florian Orzol
+#
+# This script is needed because of the date command. In autostart the date will not change after initialisation.
+
+
+FILENAME_PREFIX="$(date +'%Y-%m-%d_%H-%M-%S')"
+FILENAME_SUFFIX=".png"
+
+DIR_SCREENSHOTS="$HOME/Pictures/screenshots"
+
+frame(){
+    import $DIR_SCREENSHOTS/$FILENAME_PREFIX-frame.$FILENAME_SUFFIX
+}
+
+desktop(){
+    import -window root $DIR_SCREENSHOTS/$FILENAME_PREFIX-desktop.$FILENAME_SUFFIX
+}
+
+$1

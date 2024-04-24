@@ -18,6 +18,7 @@ INTERNET_BROWSER='google-chrome-stable'
 RESIZE_STEP=0.02
 DESKTOPS_FILE="$HOME/.config/herbstluftwm/virtual-desktops"
 DIR_SCREENSHOTS="$HOME/Pictures/screenshots"
+SCREENSHOT_SCRIPT="$HOME/.config/herbstluftwm/screenshots"
 
 bash $DESKTOPS_FILE config
 
@@ -108,9 +109,8 @@ hc keybind $SC_SHORTCUTS-o spawn audio-ctrl toggle-output-device
 hc keybind $SC_SHORTCUTS-m spawn audio-ctrl toggle-mute-output
 hc keybind $SC_SHORTCUTS-u spawn audio-ctrl raise-volume-output
 hc keybind $SC_SHORTCUTS-l spawn audio-ctrl lower-volume-output
-hc keybind $SC_SHORTCUTS-s spawn import $DIR_SCREENSHOTS/$(date +'%Y-%m-%d_%H-%M-%S')-frame.png
-hc keybind $SC_SHORTCUTS-Shift-s spawn import -window root $DIR_SCREENSHOTS/$(date +'%Y-%m-%d_%H-%M-%S')-desktop.png
-
+hc keybind $SC_SHORTCUTS-s spawn $SCREENSHOT_SCRIPT frame 
+hc keybind $SC_SHORTCUTS-Shift-s spawn $SCREENSHOT_SCRIPT desktop 
 
 # --------------------------------
 # >> MOUSE-BINDINGS <<
