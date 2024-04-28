@@ -3,6 +3,7 @@
 # |~>   |     _
 # |_____|   ('v') 
 # /:::::\  /{w w}\ 
+#
 # created by: Florian Orzol
 # my fish config file 
 

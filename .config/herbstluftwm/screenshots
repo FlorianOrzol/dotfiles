@@ -4,6 +4,7 @@
 # |~>   |     _
 # |_____|   ('v') 
 # /:::::\  /{w w}\ 
+#
 # created by: Florian Orzol
 # This script is needed because of the date command. In autostart the date will not change after initialisation.
 
