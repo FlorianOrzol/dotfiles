@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 #
-#  _____  ______ 
-# |  ___||  __  |
-# | |__  | |  | |
-# |  __| | |  | |
-# | |    | |__| |
-# \_|    \______| Florian Orzol
-#
+#  _____
+# |~>   |     _
+# |_____|   ('v') 
+# /:::::\  /{w w}\ 
+# created by: Florian Orzol
 # my autostart script for herbstluftwm
+
+
+#    <')
+# \_;( )
+
 
 hc() {
     herbstclient "$@"
@@ -91,8 +94,8 @@ hc keybind $SC_FRAME-r split right 0.5
 hc keybind $SC_FRAME-e split explode
 hc keybind $SC_FRAME-x remove
 hc keybind $SC_FRAME-$SHIFT-l resize left +$RESIZE_STEP
-hc keybind $SC_FRAME-$SHIFT-b resize bottom +$RESIZE_STEP
-hc keybind $SC_FRAME-$SHIFT-t resize top +$RESIZE_STEP
+hc keybind $SC_FRAME-$SHIFT-b resize down +$RESIZE_STEP
+hc keybind $SC_FRAME-$SHIFT-t resize up +$RESIZE_STEP
 hc keybind $SC_FRAME-$SHIFT-r resize right +$RESIZE_STEP
 
 
@@ -190,7 +193,7 @@ hc unlock
 # hc set_monitors 1280x1024+0+0 1280x1024+1280+0
 # or simply:
 hc detect_monitors
-hc remove_monitor 3
+hc remove_monitor 3 # the fourth monitor is only for information like conky without a tag
 
 # without the follow lines, the default tag will be used on one monitor
 $DESKTOPS_FILE switch +1
