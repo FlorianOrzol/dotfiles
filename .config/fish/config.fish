@@ -1,12 +1,16 @@
 #
-#  _____  ______    
-# |  ___||  __  |    
-# | |__  | |  | |   
-# |  __| | |  | |  
-# | |    | |__| |
-# \_|    \______| Florian Orzol
-#
-# 
+#  _____
+# |~>   |     _
+# |_____|   ('v') 
+# /:::::\  /{w w}\ 
+# created by: Florian Orzol
+# my fish config file 
+
+
+#    <')
+# \_;( )
+
+
 
 if status is-interactive
 
@@ -56,7 +60,7 @@ function fish_prompt
     # this prevent the errot that the git status is not a git repository 
     set -l git_info ""
     if string match -q '*(*' (__fish_git_prompt)
-        set git_info "$color_fg_git " \uf418 (__fish_git_prompt) "$color_fg_git_status " (__fish_git_prompt_informative_status)
+        set git_info "$color_fg_git " (__fish_git_prompt) "$color_fg_git_status " (__fish_git_prompt_informative_status)
         #echo (__fish_git_prompt_informative_status)
     end
 
