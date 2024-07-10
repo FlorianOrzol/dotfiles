@@ -23,6 +23,7 @@ RESIZE_STEP=0.02
 DESKTOPS_FILE="$HOME/.config/herbstluftwm/virtual-desktops"
 DIR_SCREENSHOTS="$HOME/Pictures/screenshots"
 SCREENSHOT_SCRIPT="$HOME/.config/herbstluftwm/screenshots"
+PASSWORD_SCRIPT="pass-rofi-sc-ctrl"
 
 bash $DESKTOPS_FILE config
 
@@ -115,6 +116,11 @@ hc keybind $SC_SHORTCUTS-u spawn audio-ctrl raise-volume-output
 hc keybind $SC_SHORTCUTS-l spawn audio-ctrl lower-volume-output
 hc keybind $SC_SHORTCUTS-s spawn $SCREENSHOT_SCRIPT frame 
 hc keybind $SC_SHORTCUTS-Shift-s spawn $SCREENSHOT_SCRIPT desktop 
+hc keybind $SC_SHORTCUTS-p spawn $PASSWORD_SCRIPT autofill
+hc keybind $SC_SHORTCUTS-Shift-p spawn $PASSWORD_SCRIPT edit 
+hc keybind $SC_SHORTCUTS-Shift-g spawn $PASSWORD_SCRIPT get-info 
+
+
 
 # --------------------------------
 # >> MOUSE-BINDINGS <<
