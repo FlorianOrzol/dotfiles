@@ -1,5 +1,16 @@
 #!/bin/bash
+#
+#  _____
+# |~>   |     _
+# |_____|   ('v') 
+# /:::::\  /{w w}\ 
+#
+# created by: Florian Orzol
+# script to link the .config files to the home directory 
 
+
+#    <')
+# \_;( )
 
 # get the directory of this script, not the directory it is called from and not the directory where the link is
 DIR=$(dirname $(readlink -f $0))
