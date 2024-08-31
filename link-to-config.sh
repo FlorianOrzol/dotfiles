@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Link to the config files in the home directory
 
-# Get the directory of this script
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# get the directory of this script, not the directory it is called from and not the directory where the link is
+DIR=$(dirname $(readlink -f $0))
 
 # list directories from .config
 config_dirs=$(find $DIR/.config -type d)
