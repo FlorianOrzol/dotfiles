@@ -1,0 +1,24 @@
+#!/bin/bash
+# Show audio devices
+
+HEADSET_SPEAKER="alsa_output.usb-Logitech_G533_Gaming_Headset-00.analog-stereo"
+HEADSET_MICROPHONE="alsa_input.usb-Logitech_G533_Gaming_Headset-00.mono-fallback"
+MONITOR_SPEAKER_BLUETOOTH="bluez_sink.C4_30_18_5A_3E_99.1"
+MONITOR_SPEAKER="alsa_output.pci-0000_02_00.1.hdmi-stereo"
+ELGATO_SPEAKER="alsa_input.usb-Elgato_Systems_Elgato_Wave_3_BS45J1A04075-00.mono-fallback"
+
+availableAudioDevices=$(pactl list short sinks | awk '{print $2}')
+
+audioOutputList=($HEADSET_SPEAKER $MONITOR_SPEAKER_BLUETOOTH $MONITOR_SPEAKER)
+audioInputList=($HEADSET_MICROPHONE $ELGATO_SPEAKER)
+
+audioOutputListNames=("Headset Speaker" "Monitor Speaker Bluetooth" "Monitor Speaker")
+audioInputListNames=("Headset Microphone" "Elgato Speaker")
+
+currentAudioOutput=$(pactl info | grep "Default Sink" | awk '{print $3}')
+
+case $1 in
+    "current-output-device")
+        echo "Current audio output: $currentAudioOutput"
+        ;;
+    "list-devices")

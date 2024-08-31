@@ -1,0 +1,9 @@
+# Minimalistische .conkyrc-Konfiguration
+background no
+update_interval 1
+total_run_times 0
+use_spacer none
+
+# Textausgabe
+TEXT
+Hallo, Conky!
