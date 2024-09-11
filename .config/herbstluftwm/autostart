@@ -116,9 +116,11 @@ hc keybind $SC_SHORTCUTS-u spawn audio-ctrl raise-volume-output
 hc keybind $SC_SHORTCUTS-l spawn audio-ctrl lower-volume-output
 hc keybind $SC_SHORTCUTS-s spawn $SCREENSHOT_SCRIPT frame 
 hc keybind $SC_SHORTCUTS-Shift-s spawn $SCREENSHOT_SCRIPT desktop 
+hc keybind $SC_SHORTCUTS-$CTRL-$SHIFT-s spawn $SCREENSHOT_SCRIPT clipboard
 hc keybind $SC_SHORTCUTS-p spawn $PASSWORD_SCRIPT autofill
 hc keybind $SC_SHORTCUTS-Shift-p spawn $PASSWORD_SCRIPT edit 
 hc keybind $SC_SHORTCUTS-Shift-g spawn $PASSWORD_SCRIPT get-info 
+hc keybind $SC_SHORTCUTS-Shift-d spawn rofi -show window
 
 
 

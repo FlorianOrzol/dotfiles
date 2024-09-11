@@ -30,7 +30,7 @@ conky.config = {
 	xinerama_head = 3,
 	gap_x = 15,
 	gap_y = 15,
-	maximum_width = 400,
+--	maximum_width = 400,
 	minimum_width = 400,
 	minimum_height = 120,
 	maximum_height = 120,
@@ -64,7 +64,8 @@ conky.config = {
 }
 conky.text = [[
 ${voffset 10}\
-${offset 10}${color EAEAEA}${font GE Inspira:pixelsize=70}${time %H:%M}${font}${voffset -35}${offset 20}${color FFA300}${font GE Inspira:pixelsize=42}${time %d} ${voffset -17}${color EAEAEA}${font GE Inspira:pixelsize=22}${time  %B} ${time %Y}${font}${voffset 20}${font GE Inspira:pixelsize=16}${offset -125} ${time %A}${font}
+${offset 10}${color EAEAEA}${font GE Inspira:pixelsize=70}${time %H:%M}${font}${voffset -35}${offset 20}${color FFA300}${font GE Inspira:pixelsize=42}${time %d} ${voffset -17}${color EAEAEA}${font GE Inspira:pixelsize=22}${time  %B} ${time %Y} 
+${font}${font GE Inspira:pixelsize=16}${offset 260} ${time %A}${font}
 
 
 

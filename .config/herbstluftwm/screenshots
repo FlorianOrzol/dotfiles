@@ -14,7 +14,7 @@
 
 
 FILENAME_PREFIX="$(date +'%Y-%m-%d_%H-%M-%S')"
-FILENAME_SUFFIX=".png"
+FILENAME_SUFFIX="png"
 
 DIR_SCREENSHOTS="$HOME/Pictures/screenshots"
 
@@ -24,6 +24,11 @@ frame(){
 
 desktop(){
     import -window root $DIR_SCREENSHOTS/$FILENAME_PREFIX-desktop.$FILENAME_SUFFIX
+}
+
+clipboard(){
+    import /tmp/screenshot-import.$FILENAME_SUFFIX
+    xclip -selection clipboard -target image/$FILENAME_SUFFIX -i /tmp/screenshot-import.$FILENAME_SUFFIX
 }
 
 $1
