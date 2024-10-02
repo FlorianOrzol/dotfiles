@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+#
+#  _____
+# |~>   |     _
+# |_____|   ('v') 
+# /:::::\  /{w w}\ 
+#
+# created by: Florian Orzol
+# my autostart script for herbstluftwm
+
+
+#    <')
+# \_;( )
+
+
+hc() {
+    herbstclient "$@"
+}
+
+TERMINAL='alacritty'
+INTERNET_BROWSER='google-chrome-stable'
+RESIZE_STEP=0.02
+DESKTOPS_FILE="$HOME/.config/herbstluftwm/virtual-desktops"
+DIR_SCREENSHOTS="$HOME/Pictures/screenshots"
+SCREENSHOT_SCRIPT="$HOME/.config/herbstluftwm/screenshots"
+PASSWORD_SCRIPT="pass-rofi-sc-ctrl"
+
+bash $DESKTOPS_FILE config
+
+# remove all existing keybindings
+hc keyunbind --all
+
+# =================
+# >> KEYBINDINGS <<
+# =================
+#
+
+ALT=Mod1
+SUPER=Mod4
+ALT_GR=Mod5
+SHIFT=Shift
+CTRL=Control
+
+
+
+# --------------------------------
+# >> SYSTEM-BINDINGS <<
+
+SC_SYSTEM="$SUPER-$ALT_GR"
+
+hc keybind $SC_SYSTEM-q quit
+hc keybind $SC_SYSTEM-r reload
+
+
+
+# --------------------------------
+# >> FOCUS-BINDINGS <<
+SC_FOCUS="$SUPER"
+
+hc keybind $SC_FOCUS-Left  focus left
+hc keybind $SC_FOCUS-Down  focus down
+hc keybind $SC_FOCUS-Up    focus up
+hc keybind $SC_FOCUS-Right focus right
+hc keybind $SC_FOCUS-n      spawn $DESKTOPS_FILE switch +1
+hc keybind $SC_FOCUS-p      spawn $DESKTOPS_FILE switch -1
+hc keybind $SC_FOCUS-c      cycle
+
+
+
+# --------------------------------
+# >> WINDOWS-BINDINGS <<
+SC_WINDOWS="$SUPER-$SHIFT"
+
+hc keybind $SC_WINDOWS-Left  shift left
+hc keybind $SC_WINDOWS-Down  shift down
+hc keybind $SC_WINDOWS-Up    shift up
+hc keybind $SC_WINDOWS-Right shift right
+hc keybind $SC_WINDOWS-n      spawn $DESKTOPS_FILE move +1
+hc keybind $SC_WINDOWS-p      spawn $DESKTOPS_FILE move -1
+hc keybind $SC_WINDOWS-x      close
+hc keybind $SC_WINDOWS-c        cycle_layout +1 max horizontal
+hc keybind $SC_WINDOWS-t        set_attr clients.focus.decorated toggle
+hc keybind $SC_WINDOWS-f        set_attr clients.focus.floating toggle # toggle only the focused client
+hc keybind $SC_WINDOWS-m        fullscreen toggle        
+
+
+
+# --------------------------------
+# >> FRAME-BINDINGS <<
+SC_FRAME="$SUPER-$CTRL"
+
+hc keybind $SC_FRAME-l split left 0.5
+hc keybind $SC_FRAME-b split bottom 0.5
+hc keybind $SC_FRAME-t split top 0.5
+hc keybind $SC_FRAME-r split right 0.5
+hc keybind $SC_FRAME-e split explode
+hc keybind $SC_FRAME-x remove
+hc keybind $SC_FRAME-$SHIFT-l resize left +$RESIZE_STEP
+hc keybind $SC_FRAME-$SHIFT-b resize down +$RESIZE_STEP
+hc keybind $SC_FRAME-$SHIFT-t resize up +$RESIZE_STEP
+hc keybind $SC_FRAME-$SHIFT-r resize right +$RESIZE_STEP
+
+
+
+# --------------------------------
+# >> SHORTCUTS <<
+SC_SHORTCUTS="$SUPER-$ALT"
+
+hc keybind $SC_SHORTCUTS-t spawn $TERMINAL
+hc keybind $SC_SHORTCUTS-d spawn dmenu_run
+hc keybind $SC_SHORTCUTS-g spawn $INTERNET_BROWSER
+hc keybind $SC_SHORTCUTS-i spawn audio-ctrl toggle-input-device
+hc keybind $SC_SHORTCUTS-o spawn audio-ctrl toggle-output-device
+hc keybind $SC_SHORTCUTS-m spawn audio-ctrl toggle-mute-output
+hc keybind $SC_SHORTCUTS-u spawn audio-ctrl raise-volume-output
+hc keybind $SC_SHORTCUTS-l spawn audio-ctrl lower-volume-output
+hc keybind $SC_SHORTCUTS-s spawn $SCREENSHOT_SCRIPT frame 
+hc keybind $SC_SHORTCUTS-Shift-s spawn $SCREENSHOT_SCRIPT desktop 
+hc keybind $SC_SHORTCUTS-$CTRL-$SHIFT-s spawn $SCREENSHOT_SCRIPT clipboard
+hc keybind $SC_SHORTCUTS-p spawn $PASSWORD_SCRIPT autofill
+hc keybind $SC_SHORTCUTS-Shift-p spawn $PASSWORD_SCRIPT edit 
+hc keybind $SC_SHORTCUTS-Shift-g spawn $PASSWORD_SCRIPT get-info 
+hc keybind $SC_SHORTCUTS-Shift-d spawn rofi -show window
+
+
+
+# --------------------------------
+# >> MOUSE-BINDINGS <<
+SC_MOUSE="$SUPER"
+
+hc mousebind $SC_MOUSE-Button1 move
+hc mousebind $SC_MOUSE-Button2 zoom
+hc mousebind $SC_MOUSE-Button3 resize
+                     
+
+
+
+
+# ===========
+# >> THEME <<
+# ===========
+#
+
+# reset the theme to the default settings
+hc attr theme.tiling.reset 1 # reset tiling settings
+hc attr theme.floating.reset 1 # reset floating settings
+
+
+# --------------------------------
+# >> frame settings <<
+
+hc set frame_border_width 0 # frame border width
+hc set frame_bg_transparent on # frame background transparency
+hc set frame_transparent_width 0 # frame transparency width
+hc set frame_gap 4 # frame gap
+
+
+
+# --------------------------------
+# >> window settings <<
+
+hc attr theme.title_height 15 # title height
+hc attr theme.title_when always # one_tab or always: one_tab shows the title only on the focused client on e.g. max layout
+hc attr theme.title_font 'Dejavu Sans:pixelsize=10'  # font for the title
+hc attr theme.title_depth 3 # space below the title's baseline, rise the value if the font is too low
+
+hc attr theme.active.color '#11A1DD' # color of the focused window title background
+hc attr theme.title_color 'black' # color of the title font (all windows)
+hc attr theme.normal.color '#bc6000' # color of the not focused window title background
+hc attr theme.urgent.color '#7811A1' # color of the urgent window title background, e.g. opened pdf from terminal in external viewer
+hc attr theme.tab_color '#9c5000' # color of the inactive(background) tab
+hc attr theme.active.tab_color '#005577' # color of the inactive window in the focused frame
+hc attr theme.active.tab_title_color '#ababab' # color of the title of the unfocused window in the focused frame
+hc attr theme.normal.title_color '#ababab' # color of the title of the unfocused window in the unfocused frame
+hc attr theme.inner_width 0 # inner border width 
+hc attr theme.border_width 0 # outer border width
+hc attr theme.floating.border_width 1 # floating border width
+hc attr theme.floating.outer_width 1 # floating outer border width
+
+
+hc set window_gap 10 # window gap
+hc set frame_padding 0 # frame padding
+hc set smart_window_surroundings off # smart window surroundings (e.g. remove borders if only one window is open)
+hc set smart_frame_surroundings off # smart frame surroundings (e.g. remove borders if only one frame is open)
+hc set mouse_recenter_gap 0 # mouse recenter gap
+
+# rules
+hc unrule -F
+hc rule focus=on # normally focus new clients
+hc rule floatplacement=smart # center floating windows by default
+hc rule windowtype~'_NET_WM_WINDOW_TYPE_(DIALOG|UTILITY|SPLASH)' floating=on # center dialogs
+hc rule windowtype='_NET_WM_WINDOW_TYPE_DIALOG' focus=on # focus dialogs
+hc rule windowtype~'_NET_WM_WINDOW_TYPE_(NOTIFICATION|DOCK|DESKTOP)' manage=off # don't manage desktops
+hc rule fixedsize floating=on # floating windows are fixed size
+
+hc set tree_style '╾│ ├└╼─┐' # tree style
+
+# unlock, just to be sure
+hc unlock
+
+# do multi monitor setup here, e.g.:
+# hc set_monitors 1280x1024+0+0 1280x1024+1280+0
+# or simply:
+hc detect_monitors
+hc remove_monitor 3 # the fourth monitor is only for information like conky without a tag
+
+# without the follow lines, the default tag will be used on one monitor
+$DESKTOPS_FILE switch +1
+$DESKTOPS_FILE switch -1

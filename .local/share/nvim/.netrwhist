@@ -1,0 +1,12 @@
+let g:netrw_dirhistmax  =10
+let g:netrw_dirhistcnt =8
+let g:netrw_dirhist_8='/home/florian/.config/nvim/pack/copilotchat/start/copilot.lua'
+let g:netrw_dirhist_7='/home/florian/.config/nvim/pack/copilotchat/start'
+let g:netrw_dirhist_6='/home/florian/.config/nvim/pack/copilotchat/start/copilot.lua'
+let g:netrw_dirhist_5='/home/florian/.config/nvim/pack/copilotchat/start'
+let g:netrw_dirhist_4='/home/florian/.config/nvim/pack/copilotchat/start/copilot.lua'
+let g:netrw_dirhist_3='/home/florian/.config/nvim/pack/copilotchat/start'
+let g:netrw_dirhist_2='/home/florian'
+let g:netrw_dirhist_1='/home/florian/software-development/server-management/scripts/libs'
+let g:netrw_dirhist_0='/home/florian/software-development/server-management/scripts'
+let g:netrw_dirhist_9='/home/florian/software-development/server-management'
