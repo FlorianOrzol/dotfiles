@@ -7,3 +7,6 @@
 [submodule ".config/nvim/pack/copilotchat/start/plenary.nvim"]
 	path = .config/nvim/pack/copilotchat/start/plenary.nvim
 	url = https://github.com/nvim-lua/plenary.nvim.git
+[submodule ".config/nvim/pack/github/start/copilot.vim"]
+    path = .config/nvim/pack/github/start/copilot.vim
+    url = https://github.com/github/copilot.vim.git
