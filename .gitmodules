@@ -1,0 +1,9 @@
+[submodule ".config/nvim/pack/copilotchat/start/copilot.lua"]
+	path = .config/nvim/pack/copilotchat/start/copilot.lua
+	url = https://github.com/zbirenbaum/copilot.lua.git
+[submodule ".config/nvim/pack/copilotchat/start/CopilotChat.nvim"]
+	path = .config/nvim/pack/copilotchat/start/CopilotChat.nvim
+	url = https://github.com/CopilotC-Nvim/CopilotChat.nvim.git
+[submodule ".config/nvim/pack/copilotchat/start/plenary.nvim"]
+	path = .config/nvim/pack/copilotchat/start/plenary.nvim
+	url = https://github.com/nvim-lua/plenary.nvim.git

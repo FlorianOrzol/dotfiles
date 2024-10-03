@@ -15,6 +15,10 @@
 
 if status is-interactive
 
+# set global variables
+set -gx EDITOR nvim
+set -gx VISUAL nvim
+
 # if it is inside a git repository, show the git status in exa (ls) command.
 function get_git_status_for_exa
     if string match -q '*(*' (__fish_git_prompt)

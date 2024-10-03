@@ -13,9 +13,9 @@
 # \_;( )
 
 # list of monitors
-MONITOR_UP_LEFT=0
-MONITOR_UP_RIGHT=2
-MONITOR_BIG=1
+MONITOR_UP_LEFT=2
+MONITOR_UP_RIGHT=1
+MONITOR_BIG=0
 
 # number of desktops
 DESKTOPS=4
