@@ -1,19 +1,61 @@
 
 -- Set the leader key to space
+
 vim.g.mapleader = ' '
 
 -- tab settings
 vim.opt.tabstop = 4 -- Number of spaces that a <Tab> in the file counts for
 vim.opt.shiftwidth = 4 -- Number of spaces to use for each step of (auto)indent
-vim.opt.expandtab = true -- Use spaces instead of tabs
+vim.opt.expandtab = false -- Use spaces instead of tabs
 vim.opt.smartindent = true -- Insert indents automatically
-vim.opt.autoindent = true -- Copy indent from current line when starting a new line
+vim.opt.autoindent = false -- Copy indent from current line when starting a new line
+
+
+vim.cmd [[packadd packer.nvim]]
+
+require('packer').startup(function()
+    use { 'wbthomason/packer.nvim' }
+    --use 'zbirenbaum/copilot.lua'
+    use 'CopilotC-Nvim/CopilotChat.nvim'
+    use 'nvim-lua/plenary.nvim'
+end)
+
+-- github/copilot
+require('packer').startup(function(use)
+  use {
+    'github/copilot.vim',
+    config = function()
+      vim.defer_fn(function()
+        require('copilot').setup()
+        vim.cmd('Copilot enable')
+      end, 100)
+    end
+  }
+end)
+
+-- z.birenbaum/copilot.lua
+-- this plugin is alternative to github/copilot
+--require('packer').startup(function()
+--    use { 'wbthomason/packer.nvim' }
+--    use {
+--        'zbirenbaum/copilot.lua',
+--        config = function()
+--            require('copilot').setup()
+--            vim.cmd('Copilot enable')
+--        end
+--    }
+--    use 'CopilotC-Nvim/CopilotChat.nvim'
+--    use 'nvim-lua/plenary.nvim'
+--end)
+
 
 -- Set the colorscheme
+-- ===================
+
 -- vim.cmd('colorscheme gruvbox')
 -- vim.cmd('colorscheme gruvbox-material')
 -- vim.cmd('colorscheme gruvbox-flat')
-vim.cmd('colorscheme desert')
+-- vim.cmd('colorscheme desert')
 -- vim.cmd('colorscheme elflord')
 -- vim.cmd('colorscheme evening')
 -- vim.cmd('colorscheme industry')
@@ -26,6 +68,8 @@ vim.cmd('colorscheme desert')
 -- vim.cmd('colorscheme shine')
 -- vim.cmd('colorscheme slate')
 -- vim.cmd('colorscheme torte')
+-- vim.cmd('colorscheme vim')
+vim.cmd('colorscheme evening')
 
 
 local allModes = {
@@ -41,8 +85,10 @@ vim.api.nvim_set_keymap('i', '<left>', '<esc>', {noremap = true})
 vim.api.nvim_set_keymap('i', '<right>', '<esc><right>', {noremap = true})
 
 -- move the rows up and down
-vim.api.nvim_set_keymap('n', '<A-j>', ':move +1<CR>gv', {noremap = true})
-vim.api.nvim_set_keymap('n', '<A-k>', ':move -2<CR>gv', {noremap = true})
+--vim.api.nvim_set_keymap('n', '<A-j>', ':move +1<CR>gv', {noremap = true})
+--vim.api.nvim_set_keymap('n', '<A-k>', ':move -2<CR>gv', {noremap = true})
+vim.api.nvim_set_keymap('n', '<A-j>', ':move +1<CR>', {noremap = true})
+vim.api.nvim_set_keymap('n', '<A-k>', ':move -2<CR>', {noremap = true})
 vim.api.nvim_set_keymap('v', '<A-j>', ':move \'>+1<CR>gv', {noremap = true})
 vim.api.nvim_set_keymap('v', '<A-k>', ':move \'<-2<CR>gv', {noremap = true})
 vim.api.nvim_set_keymap('i', '<A-j>', '<esc>:m .+1<CR>==', {noremap = true})
@@ -91,9 +137,17 @@ vim.api.nvim_set_keymap('n', '<C-S-k>', ':resize +5<CR>', {noremap = true, silen
 vim.api.nvim_set_keymap('n', '<C-S-j>', ':resize -5<CR>', {noremap = true, silent = true})
 
 
--- Ctrl+l 
+
+-- tab navigation
+vim.api.nvim_set_keymap('n', 'tw', ':tabnew<CR>', {noremap = true, silent = true}) -- new empty tab with tw
+vim.api.nvim_set_keymap('n', 'tx', ':tabclose<CR>', {noremap = true, silent = true}) -- close tab with tx
+vim.api.nvim_set_keymap('n', 'tl', ':tabnext<CR>', {noremap = true, silent = true}) -- move to the next tab with tn
+vim.api.nvim_set_keymap('n', 'th', ':tabprevious<CR>', {noremap = true, silent = true}) -- move to the previous tab with tp
+vim.api.nvim_set_keymap('n', 'tt', ':tabmove<CR>', {noremap = true, silent = true}) -- move window to the tab with tt
+
+
 
 -- Load the Copilot configuration module
 require('copilot-config')
-
+require('blocktext')
 

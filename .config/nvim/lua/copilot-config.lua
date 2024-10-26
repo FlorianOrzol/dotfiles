@@ -67,3 +67,8 @@ vim.keymap.set({ 'n', 'v' }, '<leader>gx', chat.reset, { desc = 'AI Reset' })
 --vim.keymap.set({ 'n', 'v' }, '<leader>gh', pick(actions.help_actions), { desc = 'AI Help Actions' })
 --vim.keymap.set({ 'n', 'v' }, '<leader>gp', pick(actions.prompt_actions), { desc = 'AI Prompt Actions' })
 
+-- Set the Copilot keymap to accept the suggestion
+vim.g.copilot_no_tab_map = true
+--vim.api.nvim_set_keymap("i", "<C-J>", 'copilot#Accept("<CR>")', { silent = true, expr = true })
+-- with tab
+vim.api.nvim_set_keymap("i", "<C-j>", 'copilot#Accept("<CR>")', { silent = true, expr = true })
