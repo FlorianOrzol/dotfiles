@@ -6,56 +6,26 @@ vim.g.mapleader = ' '
 -- tab settings
 vim.opt.tabstop = 4 -- Number of spaces that a <Tab> in the file counts for
 vim.opt.shiftwidth = 4 -- Number of spaces to use for each step of (auto)indent
-vim.opt.expandtab = false -- Use spaces instead of tabs
+vim.opt.expandtab = true -- Use spaces instead of tabs
 vim.opt.smartindent = true -- Insert indents automatically
 vim.opt.autoindent = false -- Copy indent from current line when starting a new line
 
+vim.opt.packpath = vim.fn.stdpath('data') .. '/site'
+vim.opt.packpath:append('/home/florian/public-dotfiles/.config/nvim')
+vim.opt.runtimepath:append('/home/florian/public-dotfiles/.config/nvim')
 
-
--- Funktion zum Speichern der CopilotChat-Daten
-
-
-
-
-
-
-------------------------------------------------
 vim.cmd [[packadd packer.nvim]]
+
+--vim.opt.runtimepath:append('~/public-dotfiles/.config/nvim/site')
 
 require('packer').startup(function()
     use { 'wbthomason/packer.nvim' }
-    --use 'zbirenbaum/copilot.lua'
+    use 'gitub.com/copilot.vim'
     use 'CopilotC-Nvim/CopilotChat.nvim'
     use 'nvim-lua/plenary.nvim'
 end)
 
--- github/copilot
-require('packer').startup(function(use)
-  use {
-    'github/copilot.vim',
-    config = function()
-      vim.defer_fn(function()
-        require('copilot').setup()
-        vim.cmd('Copilot enable')
-      end, 100)
-    end
-  }
-end)
 
--- z.birenbaum/copilot.lua
--- this plugin is alternative to github/copilot
---require('packer').startup(function()
---    use { 'wbthomason/packer.nvim' }
---    use {
---        'zbirenbaum/copilot.lua',
---        config = function()
---            require('copilot').setup()
---            vim.cmd('Copilot enable')
---        end
---    }
---    use 'CopilotC-Nvim/CopilotChat.nvim'
---    use 'nvim-lua/plenary.nvim'
---end)
 
 
 -- Set the colorscheme
@@ -94,10 +64,8 @@ vim.api.nvim_set_keymap('i', '<left>', '<esc>', {noremap = true})
 vim.api.nvim_set_keymap('i', '<right>', '<esc><right>', {noremap = true})
 
 -- move the rows up and down
---vim.api.nvim_set_keymap('n', '<A-j>', ':move +1<CR>gv', {noremap = true})
---vim.api.nvim_set_keymap('n', '<A-k>', ':move -2<CR>gv', {noremap = true})
-vim.api.nvim_set_keymap('n', '<A-j>', ':move +1<CR>', {noremap = true})
-vim.api.nvim_set_keymap('n', '<A-k>', ':move -2<CR>', {noremap = true})
+vim.api.nvim_set_keymap('n', '<A-j>', ':move +1<CR>gv', {noremap = true})
+vim.api.nvim_set_keymap('n', '<A-k>', ':move -2<CR>gv', {noremap = true})
 vim.api.nvim_set_keymap('v', '<A-j>', ':move \'>+1<CR>gv', {noremap = true})
 vim.api.nvim_set_keymap('v', '<A-k>', ':move \'<-2<CR>gv', {noremap = true})
 vim.api.nvim_set_keymap('i', '<A-j>', '<esc>:m .+1<CR>==', {noremap = true})
@@ -158,56 +126,5 @@ vim.api.nvim_set_keymap('n', 'tt', ':tabmove<CR>', {noremap = true, silent = tru
 
 -- Load the Copilot configuration module
 require('copilot-config')
-require('blocktext')
-
-
-
-
-
-------------------------------
-
-
-function get_save_filename()
-  local cwd = vim.fn.getcwd()
-  return vim.fn.fnamemodify(cwd, ':t') .. '.json'
-end
-
-function save_copilot_chat()
-  local filename = get_save_filename()
-  local filepath = vim.fn.expand('~/.local/share/nvim/copilotchat_history/' .. filename)
-
-  -- Erstelle das Verzeichnis, falls es nicht existiert
-  vim.fn.mkdir(vim.fn.fnamemodify(filepath, ':h'), 'p')
-
-  -- Speichere den Verlauf mit dem Befehl :CopilotChatSave
-  vim.api.nvim_command('CopilotChatSave ' .. vim.fn.fnamemodify(filename, ':r'))
-
-  vim.notify('Verlauf gespeichert in ' .. filepath, vim.log.levels.INFO)
-end
-
-function load_copilot_chat()
-  local filename = get_save_filename()
-  local filepath = vim.fn.expand('~/.local/share/nvim/copilotchat_history/' .. filename)
-
-  -- Überprüfen, ob die Datei existiert, und den Verlauf mit dem Befehl :CopilotChatLoad laden
-  if vim.fn.filereadable(filepath) == 1 then
-    vim.api.nvim_command('CopilotChatLoad ' .. vim.fn.fnamemodify(filename, ':r'))
-    vim.notify('Verlauf geladen von ' .. filepath, vim.log.levels.INFO)
-  else
-    vim.notify('Verlauf nicht gefunden: ' .. filepath, vim.log.levels.WARN)
-  end
-end
-
--- Befehl erstellen, der die benutzerdefinierte Funktion aufruft
---vim.api.nvim_create_user_command('CopilotChatSave', save_copilot_chat, {})
---vim.api.nvim_create_user_command('CopilotChatLoad', load_copilot_chat, {})
-
--- Keybindings hinzufügen, um die neuen Befehle einfacher auszuführen
-vim.api.nvim_set_keymap('n', '<leader>sm', ':lua save_copilot_chat()<CR>', { noremap = true, silent = true })
-vim.api.nvim_set_keymap('n', '<leader>lm', ':lua load_copilot_chat()<CR>', { noremap = true, silent = true })
-
-
-
-vim.api.nvim_set_keymap('n', '<leader>cc', ':CopilotChatSave test<CR>', { noremap = true, silent = true })
 
 

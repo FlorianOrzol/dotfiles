@@ -27,6 +27,14 @@ function get_git_status_for_exa
 end
 
 alias ls='exa --icons --group-directories-first -h (get_git_status_for_exa)'
+alias vim='nvim'
+
+function my_fzf
+	set -g fzf (command /usr/bin/fzf $argv)
+	echo $fzf
+end
+alias ffzf='my_fzf -m'
+
 
 function save_status --on-event fish_postexec
     set -g last_status $status
@@ -66,7 +74,7 @@ function fish_prompt
     set -l git_info ""
     if string match -q '*(*' (__fish_git_prompt)
         set git_info "$color_fg_git " (__fish_git_prompt) "$color_fg_git_status " (__fish_git_prompt_informative_status)
-        #echo (__fish_git_prompt_informative_status)
+        #echo (__fish_git_prompt_informative_status)"
     end
 
     # show prompt
@@ -87,16 +95,18 @@ function ranger-cd
     if test -f $tempfile
         if [ (cat $tempfile) != (pwd) ]
             cd (cat $tempfile)
-        end
+		end
     end
-    rm -f $tempfile
+	rm -f $tempfile
 end
 
 
 
 
 function fish_user_key_bindings
-    bind \co 'ranger-cd ; commandline -f repaint'
+	#bind \co 'ranger-cd ; commandline -f execute; commandline -f repaint'
+	bind \co 'ranger-cd; commandline -f execute;'
+	#    bind \co 'ranger-cd ; '
 end
 
 end

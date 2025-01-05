@@ -19,6 +19,30 @@
 
 local function get_comment_systax()
 	local filetype = vim.bo.filetype
+	-- if filetypt is empty, check first line for shebang
+	if filetype == '' then
+		local shebang = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+		-- if shebang is not empty
+		if shebang ~= '' then
+			-- if shebang is lua
+			if string.match(shebang, 'lua') then
+				return '--', ''
+			-- if shebang is python
+			elseif string.match(shebang, 'python') then
+				return '#', ''
+			-- if shebang is sh
+			elseif string.match(shebang, 'sh') then
+				return '#', ''
+			-- if shebang is vim
+			elseif string.match(shebang, 'vim') then
+				return '"', ''
+			else
+				return '//', ''
+			end
+		else
+			return '//', ''
+		end
+	end
 	if filetype == 'lua' then
 		return '--', ''
 	elseif filetype == 'python' then
@@ -193,6 +217,7 @@ vim.api.nvim_set_keymap('n', '<leader>th', ':lua setDescriptionHeader(descriptio
 vim.api.nvim_set_keymap('n', '<leader>tm', ':lua setSection()<CR>', { noremap = true, silent = true, expr = false })
 vim.api.nvim_set_keymap('n', '<leader>td', ':lua replaceDate()<CR>', { noremap = true, silent = true, expr = false })
 vim.api.nvim_set_keymap('n', '<leader>tv', ':lua raiseVersion()<CR>', { noremap = true, silent = true, expr = false })
-
+-- update date and version
+vim.api.nvim_set_keymap('n', '<leader>ta', ':lua replaceDate()<CR>:lua raiseVersion()<CR>', { noremap = true, silent = true, expr = false })
 
 
