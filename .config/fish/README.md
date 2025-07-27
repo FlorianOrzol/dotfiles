@@ -1,1 +1,0 @@
-![Screenshot](https://github.com/FlorianOrzol/dotfiles/blob/main/img/prompt-screenshot.png)
