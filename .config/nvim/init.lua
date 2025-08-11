@@ -15,7 +15,7 @@
 -- \_;( )
 -- >>>> START SCRIPT <<<< --
 --
-
+---
 
 vim.g.mapleader = ' '
 
