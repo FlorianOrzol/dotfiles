@@ -93,12 +93,14 @@ function push {
 	fi
 	
 	if [[ "$repo" == "" ]]; then 
-		_cmd "cd \"$DOTFILES_PATH_PRIVATE\" && git add ." 
-		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git commit -m "Update" 
+		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git add . 
+		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git checkout "$DOTFILES_GIT_BRANCH_PRIVATE" 
+		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git commit -m \"Update\" 
 		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git push  
 		_cmd cd "$DOTFILES_PATH_PUBLIC" 
-		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" "git add ." 
-		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git commit -m "Update" 
+		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git add . 
+		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git checkout "$DOTFILES_GIT_BRANCH_PUBLIC"
+		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git commit -m \"Update\" 
 		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git push 
 	fi
 
