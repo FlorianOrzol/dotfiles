@@ -1,0 +1,781 @@
+#!/bin/bash
+# User extension: dotfiles
+# Description: 
+# Created on 2025-06-23
+#
+#-tags manage private and public dotfiles
+
+
+
+DOTFILES_PATH=""
+DOTFILES_GIT_URL=""
+DOTFILES_GIT_BRANCH=""
+DOTFILES_DB=$PATH_USER_LIB/$EXTENSION_NAME/database
+
+
+
+function set-dotfile {
+	local repo="$1"
+	local choosenPath="$2"
+
+
+	# choose the repository if not set
+	if [[ -z $repo ]]; then
+		repo=$(echo -e "public\nprivate" | fzf --header "Choose private or public repository" --height 10 --reverse --border --no-input)
+		[[ $? -ne 0 ]] && exit 1
+	fi
+
+#	[[ $? -ne 0 ]] && _Warning "Setup $repo repository first" && exit 1
+
+	# set the repository variables
+	[[ $repo == "private" ]] && DOTFILES_PATH="$DOTFILES_PATH_PRIVATE" && DOTFILES_GIT_URL="$DOTFILES_GIT_URL_PRIVATE" && DOTFILES_GIT_BRANCH="$DOTFILES_GIT_BRANCH_PRIVATE"
+	[[ $repo == "public" ]] && DOTFILES_PATH="$DOTFILES_PATH_PUBLIC" && DOTFILES_GIT_URL="$DOTFILES_GIT_URL_PUBLIC" && DOTFILES_GIT_BRANCH="$DOTFILES_GIT_BRANCH_PUBLIC"
+
+
+	# set the path, if not set
+	if [[ -z "$choosenPath" ]]; then 
+		choosenPath="$( (find . -type d && find . 1 -type f) | sed 's|^\./||' | fzf)" 
+		[[ $? -ne 0 ]] && exit 1
+	fi
+	local fullPath="$(pwd)/$choosenPath"
+
+
+	# return if the path is already a symlink
+	[[ -L "$fullPath" ]] && _Info "'$fullPath' is already a link" && return 0
+
+
+	local pathFromHome="${fullPath/#$HOME}"
+	local pathToDotfiles="${DOTFILES_PATH%/}$pathFromHome"
+
+	# check if the pathFromHome already exists in the public dotfiles path
+	if [[ -f "$pathToDotfiles" || -d "$pathToDotfiles" ]]; then
+		_Info "$repo dotfiles path already exists: $pathToDotfiles"
+		[[ $(_EnterYesNo "Do you want to overwrite it?" N) ]] && rm -rf "$pathToDotfiles" || return 1
+	fi
+
+	# create the directory in the public dotfiles path
+	_cmd mkdir -p "$DOTFILES_PATH$(dirname "${pathFromHome%/}")"
+	# move the file to the public dotfiles path
+	_cmd mv "$fullPath" "$pathToDotfiles"
+	# create a symlink to the file in the public dotfiles path
+	_cmd ln -s "$pathToDotfiles" "$fullPath"
+	# add the path to the database
+	_db; add "${pathFromHome#/}"
+}	
+
+
+
+
+
+
+
+
+
+function push {
+	local repo="$1"
+
+
+	local currentDir=$(pwd)
+
+
+	if [[ $repo == "private" ]]; then
+		cd "$DOTFILES_PATH_PRIVATE" 
+		_cmd git add . 
+		_cmd git commit -m "Update" 
+		_cmd git push origin "$DOTFILES_GIT_BRANCH_PRIVATE"
+	fi
+
+	if [[ $repo == "public" ]]; then 
+		cd "$DOTFILES_PATH_PUBLIC" 
+		_cmd git add . 
+		_cmd git commit -m "Update" 
+		_cmd git push origin "$DOTFILES_GIT_BRANCH_PUBLIC"
+	fi
+	
+	if [[ "$repo" == "" ]]; then 
+		_cmd "cd \"$DOTFILES_PATH_PRIVATE\" && git add ." 
+		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git commit -m "Update" 
+		_cmd cd "$DOTFILES_PATH_PRIVATE" "&&" git push  
+		_cmd cd "$DOTFILES_PATH_PUBLIC" 
+		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" "git add ." 
+		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git commit -m "Update" 
+		_cmd cd "$DOTFILES_PATH_PUBLIC" "&&" git push 
+	fi
+
+	cd "$currentDir" || return 1
+}
+
+
+
+
+
+
+
+
+
+function remove-dotfile() {
+	local choosenPath="$1"
+	
+
+
+	local pathDB
+	if [[ -z "$choosenPath" ]]; then
+		pathDB="$(cat "$DOTFILES_DB" | fzf --header "Choose a symlink to remove" --height 10 --reverse --border --no-input)"
+		[[ $? -ne 0 ]] && exit 1
+	else
+		pathDB=$(pwd)/$choosenPath # get the full path of the symlink 
+		pathDB="${choosenPath/#$HOME}" # remove the home directory from the path
+	fi
+
+	local pathOriginal="$HOME/$pathDB" # get the full path of the symlink in the home directory
+
+	# check if the path is in the database
+	if ! grep -qFx "${pathOriginal#$HOME/}" "$DOTFILES_DB"; then
+		_Warning "'${pathOriginal#$HOME/}' is not in the database"
+	fi
+
+	# check if the path is a symlink
+	[[ ! -L "$pathOriginal" ]] && _Warning "'$pathOriginal' is not a symlink"
+
+
+	# check if the symlink points to a file in the public dotfiles path
+	pathRepo=$(_db; getRepoPath "$pathDB")
+	[[ -e "$pathRepo" ]] && _Warning "'$pathOriginal' does not exist in any repo. So nothing can copied to original path"
+
+
+	if [[ $WARNING_COUNT -gt 0 ]]; then
+		_Info "There are warnings, do you want to continue to remove the others as well?"
+		[[ $(_EnterYesNo "Continue?") == "N" ]] && return 1
+	fi
+
+
+	# remove the symlink
+	_cmd rm "$pathOriginal"
+
+	# remove the file in the public dotfiles path
+	_cmd mv "$pathRepo" "$pathOriginal"
+
+	# remove the path from the database
+	_db; remove "$pathDB"
+}
+
+
+
+
+
+
+
+
+
+function setup() {
+
+
+	function initial() {
+		variables
+		clone
+	}
+
+	function variables() {
+		_setup; setVariables
+	}
+
+	function clone() {
+		_Info "Cloning PRIVATE dotfiles repositories..."
+		_git; clone "$DOTFILES_PATH_PRIVATE" "$DOTFILES_GIT_URL_PRIVATE" "$DOTFILES_GIT_BRANCH_PRIVATE"
+		_Info "Cloning PUBLIC dotfiles repositories..."
+		_git; clone "$DOTFILES_PATH_PUBLIC" "$DOTFILES_GIT_URL_PUBLIC" "$DOTFILES_GIT_BRANCH_PUBLIC"
+	}
+
+}
+
+	
+
+
+
+########################
+### HELPER FUNCTIONS ###
+########################
+
+
+##########################
+### DATABASE FUNCTIONS ###
+
+function _db() {
+
+	function initial() {
+		# Initial setup of the dotfiles
+		#
+		if [[ -f "$DOTFILES_DB" ]]; then
+			mkdir -p "$(dirname "$DOTFILES_DB")"
+			touch "$DOTFILES_DB"
+		fi
+	}
+
+	function add() {
+		local path="$1"
+_Debug "before: $path"
+		# check if the path already exists in the database
+		if grep -qFx "$path" "$DOTFILES_DB"; then
+			return 1
+		fi
+_Debug "after"
+		# add the path to the database
+		echo "$path" >> "$DOTFILES_DB"
+	}
+
+	function remove() {
+		local path="$1"
+
+_Debug "before: $path"
+		# check if the path exists in the database
+		if grep -qFx "$path" "$DOTFILES_DB"; then
+#			sed -i "/^$path$/d" "$DOTFILES_DB"
+			sed -i "\|^$path\$|d" "$DOTFILES_DB"
+			return 0
+		else
+			return 1
+		fi
+	}
+
+	function getRepoPath() {
+		local pathDB="$1"
+
+		# does $DOTFILES_PATH_PRIVATE/$pathDB or $DOTFILES_PATH_PUBLIC/$pathDB exist?
+		[[ -e "$DOTFILES_PATH_PRIVATE/$pathDB" ]] && echo "$DOTFILES_PATH_PRIVATE/$pathDB" && return 0
+		[[ -e "$DOTFILES_PATH_PUBLIC/$pathDB" ]] && echo "$DOTFILES_PATH_PUBLIC/$pathDB" && return 0
+		# if not, return notfound
+		echo "notfound"
+	}
+}
+
+
+
+
+
+
+########################
+### STATUS FUNCTIONS ###
+
+function _status() {
+
+	function check_repo_vars() {
+		local statusRepos=""
+		# Check if the required variables are set
+		if [[ ! -z "$DOTFILES_PATH_PRIVATE" ]]; then
+			statusRepos+="private "
+		fi
+		if [[ ! -z "$OTFILES_PATH_PUBLIC" ]]; then
+			statusRepos+="public "
+		fi
+
+		if [[ -z "$statusRepos" ]]; then
+			_Warning "No dotfiles repositories are set. Please set them up first."
+			return 1
+		fi
+
+		case "$statusRepos" in
+			private) choose_repo "private" ;;
+			public)
+				choose_repo "public"
+				;;
+			"private public")
+				local choice=$(echo -e "private\npublic" | fzf --header "Choose a repository to check" --height 10 --reverse --no-border --no-input)
+				if [[ $? -ne 0 ]]; then
+					exit 1
+				fi
+				choose_repo "$choice"
+				;;
+			*)
+				_Warning "Invalid repository choice: $statusRepos"
+				return 1
+				;;
+		esac
+
+	}
+
+	function variables() {
+		[[ -z "$DOTFILES_PATH" ]] && _Warning "The dotfiles path is not set." 
+		[[ -z "$DOTFILES_GIT_URL" ]] && _Warning "The dotfiles git URL is not set." 
+		[[ -z "$DOTFILES_GIT_BRANCH" ]] && _Warning "The dotfiles git branch is not set." 
+	}
+
+	function git_url() {
+		if ! git ls-remote "$DOTFILES_GIT_URL" &>/dev/null; then
+			_Warning "The git URL $DOTFILES_GIT_URL is not a valid git repository."
+			return 1
+		fi
+	}
+
+
+	function git_branch() {
+
+		if ! git ls-remote --heads "$DOTFILES_GIT_URL" "$DOTFILES_GIT_BRANCH" | grep -q refs/heads/"$DOTFILES_GIT_BRANCH"; then
+			_Warning "The git branch $DOTFILES_GIT_BRANCH does not exist in the repository $DOTFILES_GIT_URL."
+			return 1
+		fi
+	}
+
+
+	function local_path() {
+		if [[ ! -d "$DOTFILES_PATH" ]]; then
+			echo "The dotfiles path $DOTFILES_PATH does not exist."
+		elif [[ -z "$(ls -A "$DOTFILES_PATH")" ]]; then
+			echo "The dotfiles path $DOTFILES_PATH is empty."
+		elif [[ ! -d "$DOTFILES_PATH/.git" ]]; then
+			echo "The dotfiles path $DOTFILES_PATH is not a valid git repository."
+		else
+			echo "The dotfiles path $DOTFILES_PATH is a valid git repository."
+		fi
+	}
+
+
+	function local_branch() {
+		local currentBranch=$(git -C "$DOTFILES_PATH" rev-parse --abbrev-ref HEAD)
+		echo "$currentBranch"
+	}
+
+
+	function local_git_url() {
+		local remoteUrl=$(git -C "$DOTFILES_PATH" config --get remote.origin.url)
+		echo "$remoteUrl"
+	}
+
+
+	function git_path_differences() {
+
+		git -C "$DOTFILES_PATH" fetch origin "$DOTFILES_GIT_BRANCH"
+		git -C "$DOTFILES_PATH" diff --name-status origin/"$DOTFILES_GIT_BRANCH"
+	}
+
+	function local_git_diffs() {
+		git -C "$DOTFILES_PATH" diff --name-status
+	}
+
+}
+
+
+
+
+
+
+#########################
+### GIT FUNCTIONS ###
+
+function _git() {
+
+	function clone() {
+		local dotfilesPath="$1"
+		local dotfilesGitUrl="$2"
+		local dotfilesGitBranch="$3"
+
+		# check if the dotfilesPath, dotfilesGitUrl and dotfilesGitBranch are set
+		if [[ -z "$dotfilesPath" || -z "$dotfilesGitUrl" || -z "$dotfilesGitBranch" ]]; then
+			_Warning "The dotfiles path, git URL or branch is not set. Please set it up first."
+			return 1
+		fi
+		# check if the dotfilesPath directory already exists
+		if [[ -d "$dotfilesPath" ]]; then
+			_Warning "The dotfiles path $dotfilesPath already exists. Please remove it first."
+			return 1
+		fi
+		# if $dotfilesPath directory is not empty, then check if it exists
+		if [[ -d "$dotfilesPath" && ! -z "$(ls -A "$dotfilesPath")" ]]; then
+			_Warning "The dotfiles path $dotfilesPath is not empty. Please remove it first."
+			return 1
+		fi
+
+		_cmd "git clone $dotfilesGitUrl $dotfilesPath"
+		_cmd "git -C $dotfilesPath checkout $dotfilesGitBranch"
+	}
+
+
+
+
+
+
+
+
+
+	function pull() {
+		_cmd "git -C $DOTFILES_PATH pull origin $DOTFILES_GIT_BRANCH"
+	}
+
+
+
+
+
+
+
+
+
+	function push() {
+		_cmd "git -C $DOTFILES_PATH push origin $DOTFILES_GIT_BRANCH"
+	}
+
+
+
+
+
+
+
+
+
+	function solve_conflicts() {
+		_cmd "git -C $DOTFILES_PATH reset --hard HEAD" # reset the repository to the last commit
+	}
+	"$@"
+}
+
+
+
+
+
+
+#######################
+### SETUP FUNCTIONS ###
+
+function _setup() {
+
+	function setVariables() {
+		local variables="$1"
+		local variableOptions=$(echo -e "all\nprivate\npublic\nprivate-URL\npublic-URL\nprivate-path\npublic-path\nprivate-branch\npublic-branch")
+		# if $variables is in variableOptions, then set it to the variableOptions
+		if [[ -n "$variables" && "$variableOptions" == *"$variables"* ]]; then
+			variables="$variables"
+		else
+			# if not, then ask the user to choose from variableOptions
+			variables=$(echo -e "$variableOptions" | fzf --header "Choose what to setup" --height 10 --reverse --no-border --no-input)
+			[[ $? -ne 0 ]] && exit 1
+		fi
+
+		case "$variables" in
+			all)
+				set_private_dotfiles_git_url
+				set_private_dotfiles_path
+				set_private_dotfiles_branch
+				set_public_dotfiles_git_url
+				set_public_dotfiles_path
+				set_public_dotfiles_branch
+				_envSet DOTFILES_PATH_PRIVATE "$DOTFILES_PATH_PRIVATE"
+				_envSet DOTFILES_PATH_PUBLIC "$DOTFILES_PATH_PUBLIC"
+				_envSet DOTFILES_GIT_URL_PRIVATE "$DOTFILES_GIT_URL_PRIVATE"
+				_envSet DOTFILES_GIT_URL_PUBLIC "$DOTFILES_GIT_URL_PUBLIC"
+				_envSet DOTFILES_GIT_BRANCH_PRIVATE "$DOTFILES_GIT_BRANCH_PRIVATE"
+				_envSet DOTFILES_GIT_BRANCH_PUBLIC "$DOTFILES_GIT_BRANCH_PUBLIC"
+				;;
+			private)
+				set_private_dotfiles_git_url
+				set_private_dotfiles_path
+				set_private_dotfiles_branch
+				_envSet DOTFILES_PATH_PRIVATE "$DOTFILES_PATH_PRIVATE"
+				_envSet DOTFILES_GIT_URL_PRIVATE "$DOTFILES_GIT_URL_PRIVATE"
+				_envSet DOTFILES_GIT_BRANCH_PRIVATE "$DOTFILES_GIT_BRANCH_PRIVATE"
+				;;
+			public)
+				set_public_dotfiles_git_url
+				set_public_dotfiles_path
+				set_public_dotfiles_branch
+				_envSet DOTFILES_PATH_PUBLIC "$DOTFILES_PATH_PUBLIC"
+				_envSet DOTFILES_GIT_URL_PUBLIC "$DOTFILES_GIT_URL_PUBLIC"
+				_envSet DOTFILES_GIT_BRANCH_PUBLIC "$DOTFILES_GIT_BRANCH_PUBLIC"
+				;;
+			private-URL)
+				set_private_dotfiles_git_url
+				_envSet DOTFILES_GIT_URL_PRIVATE "$DOTFILES_GIT_URL_PRIVATE"
+				;;
+			public-URL)
+				set_public_dotfiles_git_url
+				_envSet DOTFILES_GIT_URL_PUBLIC "$DOTFILES_GIT_URL_PUBLIC"
+				;;
+			private-path)
+				set_private_dotfiles_path
+				_envSet DOTFILES_PATH_PRIVATE "$DOTFILES_PATH_PRIVATE"
+				;;
+			public-path)
+				set_public_dotfiles_path
+				_envSet DOTFILES_PATH_PUBLIC "$DOTFILES_PATH_PUBLIC"
+				;;
+			private-branch)
+				set_private_dotfiles_branch
+				_envSet DOTFILES_GIT_BRANCH_PRIVATE "$DOTFILES_GIT_BRANCH_PRIVATE"
+				;;
+			public-branch)
+				set_public_dotfiles_branch
+				_envSet DOTFILES_GIT_BRANCH_PUBLIC "$DOTFILES_GIT_BRANCH_PUBLIC"
+				;;
+		esac
+		
+	}	
+
+
+
+
+
+
+
+
+
+	function set_private_dotfiles_git_url() {
+		local url=$(_Enter "Enter the URL to your private dotfiles repository: ")
+		if git ls-remote "$url" &>/dev/null; then
+			DOTFILES_GIT_URL_PRIVATE=$url
+		else
+			_Warning "Invalid repository URL. Please enter a valid URL."
+			return 1
+		fi
+	}
+
+
+
+
+
+
+
+
+
+	function set_public_dotfiles_git_url() {
+		local url=$(_Enter "Enter the URL to your public dotfiles repository: ")
+		if git ls-remote "$url" &>/dev/null; then
+			DOTFILES_GIT_URL_PUBLIC=$url
+		else
+			_Warning "Invalid repository URL. Please enter a valid URL."
+			return 1
+		fi
+	}
+
+
+
+
+
+
+
+
+
+	function set_private_dotfiles_path() {
+		local path=$(_Enter "Enter the path to your private dotfiles directory: ")
+		if [[ -d "$path" ]]; then
+			_Info "path $path is existing"
+		else
+			_Warning "Directory '$path' does not exist"
+		fi
+		if [[ $(_EnterYesNo "is $path as private dotfiles path correct?" Y) == "Y" ]]; then
+			DOTFILES_PATH_PRIVATE=$path
+		else
+			_Warning "path for private dotfiles not set"
+			return 1
+		fi
+	}
+
+
+
+
+
+
+
+
+
+	function set_public_dotfiles_path() {
+		local path=$(_Enter "Enter the path to your public dotfiles directory: ")
+		if [[ -d "$path" ]]; then
+			_Info "path $path is existing"
+		else
+			_Warning "Directory does not exist"
+		fi
+		answer=$(_EnterYesNo "is $path as public dotfiles path correct?" Y)
+		if [[ $answer == "Y" ]]; then
+			DOTFILES_PATH_PUBLIC=$path
+		else
+			_Warning "path for public dotfiles not set"
+			return 1
+		fi
+	}
+
+
+
+
+
+
+
+
+
+	function set_private_dotfiles_branch() {
+		local branch=$(_Enter "Enter the main branch of your private dotfiles repository (default: private): ")
+
+		#check if the branch exists in the repository
+		if ! git ls-remote --heads "$DOTFILES_GIT_URL_PRIVATE" "$branch" | grep -q refs/heads/$branch; then
+			if [[ $(_EnterYesNo "Branch $branch does not exist in the repository. Do you already want to use it?" Y) == "N" ]]; then
+				return 1
+			fi
+		fi
+
+		DOTFILES_GIT_BRANCH_PRIVATE=$branch
+	}
+
+
+
+
+
+
+
+
+
+	function set_public_dotfiles_branch() {
+		local branch=$(_Enter "Enter the main branch of your public dotfiles repository (default: main): ")
+
+		#check if the branch exists in the repository
+		if ! git ls-remote --heads "$DOTFILES_GIT_URL_PUBLIC" "$branch" | grep -q refs/heads/$branch; then
+			if [[ $(_EnterYesNo "Branch $branch does not exist in the repository. Do you already want to use it?" Y) == "N" ]]; then
+				return 1
+			fi
+		fi
+
+		DOTFILES_GIT_BRANCH_PUBLIC=$branch
+	}
+}
+
+
+
+
+
+
+
+#########################
+### SUPPORT FUNCTIONS ###
+
+
+function _support() {
+
+
+	function choose_repo() {
+		local repo="$1"
+
+		if [[ $repo == "private" ]]; then
+			[[ -z "$DOTFILES_PATH_PRIVATE" ]] && echo "nopath"; return 1
+			[[ -z "$DOTFILES_GIT_URL_PRIVATE" ]] && echo "nourl"; return 1
+			[[ -z "$DOTFILES_GIT_BRANCH_PRIVATE" ]] && echo "nobranch"; return 1
+			DOTFILES_PATH="$DOTFILES_PATH_PRIVATE"
+			DOTFILES_GIT_URL="$DOTFILES_GIT_URL_PRIVATE"
+			DOTFILES_GIT_BRANCH="$DOTFILES_GIT_BRANCH_PRIVATE"
+		elif [[ $repo == "public" ]]; then
+			[[ -z "$DOTFILES_PATH_PUBLIC" ]] && echo "nopath"; return 1
+			[[ -z "$DOTFILES_GIT_URL_PUBLIC" ]] && echo "nourl"; return 1
+			[[ -z "$DOTFILES_GIT_BRANCH_PUBLIC" ]] && echo "nobranch"; return 1
+			DOTFILES_PATH="$DOTFILES_PATH_PUBLIC"
+			DOTFILES_GIT_URL="$DOTFILES_GIT_URL_PUBLIC"
+			DOTFILES_GIT_BRANCH="$DOTFILES_GIT_BRANCH_PUBLIC"
+		else
+			_Warning "Invalid repository choice: $repo"
+			return 1
+		fi
+	} 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	function check_folder_status() {
+		local statusFolder=""
+
+		# check if the path exists
+		if [[ -d "$DOTFILES_FOLDER" ]]; then
+			_Warning "The directory $DOTFILES_FOLDER does not exist."
+			return 1
+		fi
+
+		# if the path is empty?
+		if [[ -z "$(ls -A "$DOTFILES_FOLDER")" ]]; then 
+			statusFolder="empty"
+		fi
+
+		# if .git folder exists
+		if [[ -d "$DOTFILES_FOLDER/.git" ]]; then
+			statusFolder="git"
+		fi
+
+		# if content of the folder has other files and folders
+		if [[ -n "$(ls -A "$DOTFILES_FOLDER" | grep -v '^\.git$')" ]]; then
+			statusFolder+="content"
+		fi
+
+	}
+
+
+
+
+
+
+
+
+
+	function git_status() {
+		local statusGit=""
+
+		function url() {
+			# check if url of repository is valid
+			if ! git ls-remote "$DOTFILES_GIT_URL" &>/dev/null; then
+				_Warning "The URL $DOTFILES_GIT_URL is not a valid git repository."
+				return 1
+			fi
+		}
+
+		function branch() {
+			# check if branch is set
+			if [[ -z "$DOTFILES_GIT_BRANCH" ]]; then
+				_Warning "The branch is not set. Please set it first."
+				return 1
+			fi
+
+			# check if the branch exists in the repository
+			if ! git ls-remote --heads "$DOTFILES_GIT_URL" "$DOTFILES_GIT_BRANCH" | grep -q refs/heads/"$DOTFILES_GIT_BRANCH"; then
+				_Warning "The branch $DOTFILES_GIT_BRANCH does not exist in the repository $DOTFILES_GIT_URL."
+				return 1
+			fi
+		}
+
+		
+
+		# check if the branch exists in the repository
+		if ! git ls-remote --heads "$DOTFILES_GIT_URL" "$DOTFILES_GIT_BRANCH" | grep -q refs/heads/"$DOTFILES_GIT_BRANCH"; then
+			_Warning "The branch $DOTFILES_GIT_BRANCH does not exist in the repository $DOTFILES_GIT_URL."
+			return 1
+		fi
+
+		# check if the branch is already checked out
+		if [[ -d "$DOTFILES_PATH/.git" ]]; then
+			if git -C "$DOTFILES_PATH" rev-parse --abbrev-ref HEAD &>/dev/null; then
+				local currentBranch=$(git -C "$DOTFILES_PATH" rev-parse --abbrev-ref HEAD)
+				if [[ "$currentBranch" != "$DOTFILES_GIT_BRANCH" ]]; then
+					_Warning "The current branch $currentBranch is not the same as the configured branch $DOTFILES_GIT_BRANCH."
+					return 1
+				fi
+			else
+				_Warning "The directory $DOTFILES_PATH is not a valid git repository."
+				return 1
+			fi
+		fi
+
+	}
+
+
+		 
+}

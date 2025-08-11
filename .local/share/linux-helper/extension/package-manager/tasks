@@ -1,0 +1,178 @@
+#!/bin/bash
+# User extension: package-manager
+# Description: 
+# Created on 2025-06-16
+#
+#-tags Package manager yay pacman: create, delete, list, show, update ...
+
+
+
+function save_detailed_information_of_installed_packages() {
+	local list=()
+	_support list_installed_packages
+	
+}
+
+
+function show-useful-commands() {
+	_information "Package detailed information"
+	_cmd_show yay -Si "<package>"
+	
+	_information "Package information of installed packages"
+	_cmd_show yay -Qi "<package>"
+
+	_information "Package information paths"
+	_cmd_show yay -Ql "<package>"
+
+	_information "Package list explicit installed"
+	_cmd_show pacman -Qe
+
+	_information "Package list explicit installed native"
+	_cmd_show pacman -Qen
+
+	_information "Package list explicit installed aur"
+	_cmd_show pacman -Qem
+
+	_information "Package list explicit installed all"
+	_cmd_show pacman -Qqe
+
+	_information "Package list installed native with version"
+	_cmd_show pacman -Qn
+
+	_information "Package list installed native without version"
+	_cmd_show pacman -Qqn
+
+	_information "Package list installed aur with version"
+	_cmd_show pacman -Qn
+
+	_information "Package list installed aur without version"
+	_cmd_show pacman -Qqn
+
+	_information "Package list not explicit installed all"
+	_cmd_show pacman -Qd
+
+	_information "Package list not explicit installed native"
+	_cmd_show pacman -Qdn
+
+	_information "Package list not explicit installed aur"
+	_cmd_show pacman -Qdm
+
+	_information "Package list available native"
+	_cmd_show pacman -Slq | sort
+
+	_information "Package list available native aur"
+	_cmd_show yay -Qaq | sort
+
+	_information "Package prevent update"
+	_cmd_show pacman -h "<package>"
+
+	_information "Package deinstall with dependencies"
+	_cmd_show pacman -Rs "<package>"
+
+	_information "Package deinstall without dependencies"
+	_cmd_show pacman -R "<package>"
+
+	_information "Package deinstall with dependencies and config"
+	_cmd_show pacman -Rsc "<package>"
+
+	_information "Package deinstall without dependencies and config"
+	_cmd_show pacman -Rsn "<package>"
+
+	_information "Package list and search with info preview"
+	_cmd_show "pacman -Qq | fzf --preview 'yay -Si {} | grep  Repo && yay -Qi {} && yay -Qlq {}' --layout=reverse --bind 'enter:execute(yay -Qil {} | less)'"
+}
+
+
+
+
+
+
+function _support() {
+
+	function pkg_info() { _cmd yay -Si "$1" ;}
+	function pkg_info_installed() { _cmd yay -Qi "$1" ;}
+	function pkg_info_paths() { _cmd yay -Ql "$1" ;}
+	function pkg_list_explicit_installed() { _cmd pacman -Qe ;}
+	function pkg_list_explicit_installed_native() { _cmd pacman -Qen ;}
+	function pkg_list_explicit_installed_aur() { _cmd pacman -Qem ;}
+	function pkg_list_explicit_installed_all() { _cmd pacman -Qqe ;}
+	function pkg_list_installed_native_with_version() { _cmd pacman -Qn ;}
+	function pkg_list_installed_native_without_version() { _cmd pacman -Qqn ;}
+	function pkg_list_installed_aur_with_version() { _cmd pacman -Qn ;}
+	function pkg_list_installed_aur_without_version() { _cmd pacman -Qqn ;}
+	function pkg_list_noexplicit_installed_all() { _cmd pacman -Qd ;}
+	function pkg_list_noexplicit_installed_native() { _cmd pacman -Qdn ;}
+	function pkg_list_noexplicit_installed_aur() { _cmd pacman -Qdm ;}
+	function pkg_list_available_native() { _cmd pacman -Slq | sort ;}
+	function pkg_list_available_native_aur() { _cmd yay -Qaq | sort ;}
+
+	function pkg_prevent_update() { _cmd pacman -h $1 ;}
+
+	function pkg_deinstall_with_dependencies() { pacman -Rs "$1" ;}
+	function pkg_deinstall_without_dependencies() { pacman -R "$1" ;}
+	function pkg_deinstall_with_dependencies_and_config() { pacman -Rsc "$1" ;}
+	function pkg_deinstall_without_dependencies_and_config() { pacman -Rsn "$1" ;}
+	 
+	function pkg_list_and_search_with_info_preview() {
+		_cmd "pacman -Qq | fzf --preview 'yay -Si {} | grep  Repo && yay -Qi {} && yay -Qlq {}' --layout=reverse --bind 'enter:execute(yay -Qil {} | less)'"
+	}
+
+
+
+
+
+
+
+
+
+	function list_installed_packages() {
+
+		local file_package_json="$PATH_USER_LIB/package-list.json"
+		rm -f "$file_package_json"
+
+		if [[ ! -f "$file_package_json" ]]; then
+			echo "{" > "$file_package_json"
+
+			for package in $(pacman -Qq); do
+				#_cmd yay -Si "$package" | jq -R 'split(": ") | {(. | .[0]): .[1]}'
+				# get infos from yay -Si and yay -Qi and save to file_package_json
+
+			#	yay -Si "$package" | jq -R 'split(": ") | select(length == 2) | {key: .[0] | gsub(" "; ""), value: .[1] | gsub("\n"; "")}' | \
+			#	jq -s 'reduce .[] as $item ({}; .[$item.key] = $item.value)' | \
+			#	jq --arg package "$package" '. | {($package): .}' >> "$file_package_json"
+				# Hole die Informationen von `yay -Si` und `yay -Qi` und füge sie in das JSON-Objekt ein
+				package_info=$(yay -Si "$package" | jq -R 'split(": ") | select(length == 2) | {key: .[0] | gsub(" "; ""), value: .[1] | gsub("\n"; "")}' | \
+				jq -s 'reduce .[] as $item ({}; .[$item.key] = $item.value)')
+
+				installed_info=$(yay -Qi "$package" | jq -R 'split(": ") | select(length == 2) | {key: .[0] | gsub(" "; ""), value: .[1] | gsub("\n"; "")}' | \
+				jq -s 'reduce .[] as $item ({}; .[$item.key] = $item.value)')
+
+				# Kombiniere die Informationen und füge sie als Schlüssel in das JSON-Objekt ein
+				combined_info=$(jq -n --argjson si "$package_info" --argjson qi "$installed_info" '$si * $qi')
+				echo "  \"$package\": $combined_info," >> "$file_package_json"
+				_information "Package $package added"
+			done
+
+			sed -i '$ s/,$//' "$file_package_json"  # Entferne das letzte Komma	
+			echo "}" >> "$file_package_json"
+		fi
+	}
+
+
+
+
+
+
+
+
+	function _check_pkgmanager() {
+		local package_manager="$1"
+		if ! command -v $package_manager &> /dev/null; then
+			_information "$package_manager is not installed."
+			exit 1		
+		fi
+	}
+
+	"$@"
+}
+
