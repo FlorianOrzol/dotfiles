@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+#  
+#   _____        _
+#  |~>   |     ('v') 
+#  /:::::\    /{w w}\ 
+# --------------------------------
+# Copyright Florian Orzol
+#
+# description:
+# date: 2025-06-06
+# version:  0.0.1
+#
+#    <')
+# \_;( )
+# >>>> START SCRIPT <<<< #
+#
+
+#-tag format discs and usb devices
+
+
+function format-device {
+	local device=$1
+	local format=$2
+
+
+	
+	if [[ -z $device ]]; then
+		local deviceList=$(lsblk -d -n -o NAME,SIZE,TYPE | grep disk | awk '{print $1 " (" $2 ")"}')
+		local header="Select the USB device to write the image to"
+		local prompt="> "
+
+		_fzf "$deviceList" "$header" "$prompt"
+
+		if [[ -z "$RETURN_VALUE" ]]; then
+			_information "No device selected."
+			return 1
+		fi
+
+		device="/dev/${RETURN_VALUE%% (*}"
+		_debug "Selected device: $device"
+
+	fi
+
+	
+
+}
