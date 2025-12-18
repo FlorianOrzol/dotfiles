@@ -33,16 +33,6 @@ alias vim='nvim'
 alias google-chrome-stable='/usr/bin/google-chrome-stable --enable-features=UseOzonePlatform --ozone-platform=x11'
 abbr -a x 'linux-helper -xd'
 
-function dotfiles
-	set -l repo $argv[1]
-	if test $repo = "public"
-		git --git-dir=$HOME/.git-dotfiles/public --work-tree=$HOME $argv[2..-1]
-	else if test $repo = "private"
-		git --git-dir=$HOME/.git-dotfiles/private --work-tree=$HOME $argv[2..-1]
-	else
-		echo "Usage: dotfiles [public|private] [git-commands]"
-	end
-end
 	
 
 function _lhu
