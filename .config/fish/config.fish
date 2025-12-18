@@ -33,78 +33,17 @@ alias vim='nvim'
 alias google-chrome-stable='/usr/bin/google-chrome-stable --enable-features=UseOzonePlatform --ozone-platform=x11'
 abbr -a x 'linux-helper -xd'
 
-	
-
-function _lhu
-	set -l currentDir (pwd)
-	cd ~/software-development/linux-helper/
-	make uninstall
-	make install
-	cd $currentDir
-end
-
-function _lhue
-	_lhu
-	linux-helper -xd $argv 
-end
-
-#function x
-#	linux-helper -xd $argv
-#end
-
-set GITprivateGitSSH 'git@10.0.11.15:flo/'
-set GITpublicGitSSH 'git@github.com:FlorianOrzol/'
-set GITprogPushAllGitRepos '/home/florian/software-development/git-handling/push-all-git-repos.sh'
-set GITpathsGitRepos '/home/florian/software-development' '~/public-dotfiles'
 
 
 
-
-function mygit-push
-	set -l gitUrl $argv[1]
-	set -e argv[1]
-	if test argv[1] = "commit:"
-		set -e argv[1]
-	end
-
-
-	#check if argv[1] begins with "commit:" and delete commit: from string
-	if string match -q "commit:*" $argv[1]
-		set  firstArg (string replace "commit:" "" $argv[1])
-		set -e argv[1]
-	end
-
-	set commitMessage "$firstArg $argv"
-
-	echo "full commit: $commitMessage"
-	
-
-	if test -f $GITprogPushAllGitRepos
-		for path in $GITpathsGitRepos
-			$GITprogPushAllGitRepos $path $gitUrl "$commitMessage"
-		end
-	end
-end
-
-
-alias git-private-push="mygit-push $GITprivateGitSSH "
-
-
-#complete -c mytest -n '__fish_use_subcommand' -f -a (helptext)
-complete -c git-private-push -f -a "commit: " -d "" 
-alias ttt="/home/florian/test.sh"
-# complete -c mytest -n '__fish_use_subcommand' -f -a (helptext)
-#complete -c mytest -n '__fish_use_subcommand' -f -a (mytest $argv)
-
-#function ttt
-#	/home/florian/test.sh $argv
-#end
-#complete -c ttt -f -a '(/home/florian/test.sh first)' 
 
 function ffzf
 	set -g fzf (command /usr/bin/fzf -m --header='(Ctrl-o) open file in editor' --bind='ctrl-o:execute(open ./{})' --height=20 --layout reverse --margin=0,3,0,3 --color 16 $argv)
 	echo $fzf
 end
+
+
+
 
 
 function save_status --on-event fish_postexec
@@ -115,8 +54,5 @@ end
 
 
 function fish_user_key_bindings
-	#bind \co 'ranger-cd ; commandline -f execute; commandline -f repaint'
 	bind \co 'cd-ranger; commandline -f execute;'
-	#    bind \co 'ranger-cd ; '
-
 end

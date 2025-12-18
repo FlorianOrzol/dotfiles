@@ -13,6 +13,7 @@ function fish_prompt
     set -l color_fg_git_status (set_color CD6600)
 	set -l status_sign "ᐱ" #ᐱ    ✔    λ
 
+
     if set -q last_status
         if test $last_status -eq 0
             # proof exit status of last command
