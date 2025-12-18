@@ -10,7 +10,7 @@
 
 # 3. --- allow specific files and directories
 !/.gitignore
-!/.config/nvim/
-!/.config/fish/
+!/.config/nvim/*
+!/.config/fish/*
 !/.config/hypr/
-!/.ranger/ranger/
+!/.config/ranger/
