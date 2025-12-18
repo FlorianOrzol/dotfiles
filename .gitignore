@@ -12,6 +12,9 @@
 !/.gitignore
 !/.config/nvim/
 !/.config/nvim/**
-!/.config/fish/*
-!/.config/hypr/*
-!/.config/ranger/*
+!/.config/fish/
+!/.config/fish/**
+!/.config/hypr/
+!/.config/hypr/**
+!/.config/ranger/
+!/.config/ranger/**
