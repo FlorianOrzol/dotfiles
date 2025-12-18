@@ -1,0 +1,16 @@
+# 1. --- block all
+*
+
+
+# 2. --- allow directories generally
+!/.config/
+!/.local/
+!/.local/share/
+
+
+# 3. --- allow specific files and directories
+!/.gitignore
+!/.config/nvim/
+!/.config/fish/
+!/.config/hypr/
+!/.ranger/ranger/
