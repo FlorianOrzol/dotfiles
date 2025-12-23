@@ -13,8 +13,8 @@
 
 
 
-set -gx EDITOR nvim
 # set global variables
+set -gx EDITOR nvim
 set -gx VISUAL nvim
 
 zoxide init fish | source # zoxide is a smarter cd command
@@ -32,6 +32,7 @@ alias _exa='exa --icons --group-directories-first -M -h --git'
 alias vim='nvim'
 alias google-chrome-stable='/usr/bin/google-chrome-stable --enable-features=UseOzonePlatform --ozone-platform=x11'
 abbr -a x 'linux-helper -xd'
+abbr -a p 'keys get -c'
 
 
 
