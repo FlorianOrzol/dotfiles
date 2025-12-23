@@ -3,7 +3,7 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
     set -l public_git "$HOME/.git-dotfiles/public"
     set -l private_git "$HOME/.git-dotfiles/private"
 
-    # Erster Befehl (public, private oder update-all)
+    # Erster Befehl (public, private oder push-all)
     set -l cmd $argv[1]
 
     switch $cmd
@@ -20,7 +20,7 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
             /usr/bin/git --git-dir=$private_git --work-tree=$HOME $argv[2..-1]
 
         # --- 3. Update All (Komfort-Funktion) ---
-        case update-all
+        case push-all
             set -l timestamp (date "+%Y-%m-%d %H:%M")
 
             echo (set_color blue)"=== Syncing Public Repo ==="(set_color normal)
@@ -49,7 +49,7 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
             end
 
         case '*'
-            echo "Verwendung: dotfiles [public | private | update-all]"
+            echo "Verwendung: dotfiles [public | private | push-all] [git-args...]"
             return 1
     end
 end

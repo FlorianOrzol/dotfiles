@@ -18,9 +18,9 @@ function __dotfiles_git_simulator
 end
 
 # ------------------------------------------------------------------
-# Level 1: Die Hauptauswahl (public, private, update-all)
+# Level 1: Die Hauptauswahl (public, private, push-all)
 # ------------------------------------------------------------------
-set -l main_cmds public private update-all
+set -l main_cmds public private push-all
 
 # Zeige diese Befehle NUR, wenn wir noch keinen davon gewählt haben
 complete -c dotfiles \
