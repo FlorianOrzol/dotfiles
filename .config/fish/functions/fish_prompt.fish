@@ -36,7 +36,8 @@ function fish_prompt
         #echo (__fish_git_prompt_informative_status)"
     end
 
+	set -l mypath (string replace $HOME '~' (pwd))
 
-    echo -s "$color_fg_hellgrey" "╭─" "$color_fg_grey" "" "$color_status" "$color_bg_grey" "$status_sign" $color_fg_hellgrey" ╱ "  "$color_fg_blue" (pwd) " " "$git_info" "$color_normal" "$color_fg_grey" "▓▒░" "$color_normal" 
+    echo -s "$color_fg_hellgrey" "╭─" "$color_fg_grey" "" "$color_status" "$color_bg_grey" "$status_sign" $color_fg_hellgrey" ╱ "  "$color_fg_blue" $mypath " " "$git_info" "$color_normal" "$color_fg_grey" "▓▒░" "$color_normal" 
     echo -s "$color_fg_hellgrey" "╰─ " "$color_normal"
 end
