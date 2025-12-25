@@ -18,14 +18,14 @@ function fish_prompt
         if test $last_status -eq 0
             # proof exit status of last command
             set color_status (set_color 00FF00)
-            set status_sign "ᐱ" #ᐱ    ✔    λ
+            set status_sign "" #ᐱ     ✔    λ
         else
             set color_status (set_color red)
             set status_sign "✘"
         end
     else
             set color_status (set_color 00FF00)
-            set status_sign "ᐱ" #ᐱ    ✔    λ
+            set status_sign "" #ᐱ     ✔    λ
     end
 
     # if it is inside a git repository, show the informative status.

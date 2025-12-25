@@ -29,7 +29,12 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
             
             # Commit nur wenn Änderungen da sind
             if not /usr/bin/git --git-dir=$public_git --work-tree=$HOME diff-index --quiet HEAD --
-                /usr/bin/git --git-dir=$public_git --work-tree=$HOME commit -m "Auto update $timestamp"
+				# if argvs [2] is not empty, pass them to commit
+				if test (count $argv) -gt 1
+					/usr/bin/git --git-dir=$public_git --work-tree=$HOME commit -m "$argv[2..-1]"
+				else
+					/usr/bin/git --git-dir=$public_git --work-tree=$HOME commit -m "Auto update $timestamp"
+				end
                 /usr/bin/git --git-dir=$public_git --work-tree=$HOME push
                 echo (set_color green)"✔ Public Pushed"(set_color normal)
             else

@@ -23,7 +23,6 @@ mcfly init fish | source # mcfly is a better history search tool
 
 
 abbr -a l '_exa'
-abbr -a ls '_exa'
 abbr -a la '_exa -la'
 abbr -a ll '_exa -l'
 abbr -a lt '_exa -lT'
