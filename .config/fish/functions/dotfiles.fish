@@ -35,6 +35,7 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
 				else
 					/usr/bin/git --git-dir=$public_git --work-tree=$HOME commit -m "Auto update $timestamp"
 				end
+
                 /usr/bin/git --git-dir=$public_git --work-tree=$HOME push
                 echo (set_color green)"✔ Public Pushed"(set_color normal)
             else
