@@ -2,19 +2,4 @@
 *
 
 
-# 2. --- allow directories generally
-!/.config/
-!/.local/
-!/.local/share/
 
-
-# 3. --- allow specific files and directories
-!/.gitignore
-!/.config/nvim/
-!/.config/nvim/**
-!/.config/fish/
-!/.config/fish/**
-!/.config/hypr/
-!/.config/hypr/**
-!/.config/ranger/
-!/.config/ranger/**
