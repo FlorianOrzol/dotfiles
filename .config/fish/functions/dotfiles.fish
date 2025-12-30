@@ -20,6 +20,7 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
             /usr/bin/git --git-dir=$private_git --work-tree=$HOME $argv[2..-1]
 
         # --- 3. Update All (Komfort-Funktion) ---
+
         case push-all
             set -l timestamp (date "+%Y-%m-%d %H:%M")
 
@@ -53,9 +54,28 @@ function dotfiles --description 'Manager für Bare-Repo Dotfiles'
             else
                 echo (set_color yellow)"- Keine Änderungen im Private Repo"(set_color normal)
             end
+		case 'public-add'
+			set -l path (realpath $argv[2..-1])
+			echo "Do you really want to add '$path' to the public dotfiles repo? (y/N)"
+			read -l response
+			if test $response = 'y'
+				/usr/bin/git --git-dir=$public_git --work-tree=$HOME add -f $argv[2..-1]
+				echo (set_color green)"✔ Added to Public Repo"(set_color normal)
+			end 
+
+		case 'public-rm'
+			/usr/bin/git --git-dir=$public_git --work-tree=$HOME rm --cached $argv[2..-1]
+			echo (set_color green)"✔ Removed from Public Repo"(set_color normal)
+
+		case 'private-add'
+			/usr/bin/git --git-dir=$private_git --work-tree=$HOME add -f $argv[2..-1]
+			echo (set_color green)"✔ Added to Private Repo"(set_color normal)
+		case 'private-rm'
+			/usr/bin/git --git-dir=$private_git --work-tree=$HOME rm --cached $argv[2..-1]
+			echo (set_color green)"✔ Removed from Private Repo"(set_color normal)
 
         case '*'
-            echo "Verwendung: dotfiles [public | private | push-all] [git-args...]"
+            echo "Verwendung: dotfiles [public | private | push-all | public-add | public-rm | private-add |private-rm [git-args...]"
             return 1
     end
 end

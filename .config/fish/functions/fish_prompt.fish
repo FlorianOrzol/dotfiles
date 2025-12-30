@@ -28,6 +28,21 @@ function fish_prompt
             set status_sign "" #ᐱ     ✔    λ
     end
 
+	# 1. Modus ermitteln
+    switch $fish_bind_mode
+        case default
+            set mode_char "N"
+            set mode_col red 
+        case insert
+            set mode_char "I"
+            set mode_col green
+        case visual
+            set mode_char "V"
+            set mode_col magenta
+    end
+
+	set -l mode_prompt (set_color $mode_col)""$color_bg_grey$color_fg_hellgrey
+
     # if it is inside a git repository, show the informative status.
     # this prevent the errot that the git status is not a git repository 
     set -l git_info ""
@@ -38,6 +53,6 @@ function fish_prompt
 
 	set -l mypath (string replace $HOME '~' (pwd))
 
-    echo -s "$color_fg_hellgrey" "╭─" "$color_fg_grey" "" "$color_status" "$color_bg_grey" "$status_sign" $color_fg_hellgrey" ╱ "  "$color_fg_blue" $mypath " " "$git_info" "$color_normal" "$color_fg_grey" "▓▒░" "$color_normal" 
+    echo -s "$color_fg_hellgrey" "╭─" "$color_fg_grey" "" "$color_status" "$color_bg_grey" "$status_sign" $color_fg_hellgrey"  $mode_prompt ╱ "  "$color_fg_blue" $mypath " " "$git_info" "$color_normal" "$color_fg_grey" "▓▒░" "$color_normal" 
     echo -s "$color_fg_hellgrey" "╰─ " "$color_normal"
 end
