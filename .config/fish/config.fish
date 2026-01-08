@@ -70,7 +70,7 @@ if status is-interactive
     # If the current shell is not already inside a tmux session ($TMUX is not set),
     # start a new, independent tmux session for this terminal.
     # The session name is dynamically generated using a timestamp to ensure uniqueness.
-    exec tmux new -s "alacritty_"(date +%s%N)
+    tmux new -s "alacritty_"(date +%s%N) # Temporarily without exec for debugging
 
     # Initialize fish key bindings.
     # fish_vi_key_bindings sets up Vim-like key bindings.

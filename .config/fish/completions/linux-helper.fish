@@ -1,20 +1,29 @@
+# This file provides dynamic completions for the `linux-helper` command.
+# It generates suggestions based on a file system structure defined in `~/.local/share/linux-helper/extension`.
+
 function __linux_helper_completions
     set -l base_path "/home/florian/.local/share/linux-helper/extension"
     
-    # 1. Analyse (wie gehabt)
+    # 1. Command Line Analysis
+    # Get all tokens from the current command line.
     set -l tokens (commandline -opc)
+    # Remove the command itself ('linux-helper') from the tokens list.
     set -e tokens[1]
+    # Get the current word being typed for context.
     set -l current_word (commandline -ct)
 
-	#printf "%s\t%s\n" "--server=Host 1" "description for server"
-	#	printf "%s\t%s\n" "--server='client 1'" "description for server"
-	
-	printf "%s\t%s\n" --help Show help information
-	printf "%s\t%s\n" "--version Show version information"
-	#		printf "%s\t%s\n" "" "description for server"
-	#	printf "%s\t%s\n" "-" ""
+	printf "%s\t%s\n" ""
+	printf "%s\t%s\n" "Meine Bunte Beschreibunt"
 	return
-    # 2. Pfad bereinigen
+    # Always provide completions for standard options like --help and --version.
+	#printf "%s\t%s\n" --help "Show help information"
+	#printf "%s\t%s\n" "--version" "Show version information"
+    
+    # The previous 'return' statement here was preventing dynamic completions.
+    # It has been removed to allow the rest of the function to execute.
+
+    # 2. Path Token Cleaning
+    # Build a list of path tokens, excluding options (starting with -) and the current word.
     set -l path_tokens
     for t in $tokens
         if string match -q -- "-*" "$t"
@@ -26,9 +35,10 @@ function __linux_helper_completions
         set path_tokens $path_tokens $t
     end
 
-    # 3. Walker
+    # 3. Path Traversal (Walker)
+    # Determine the current path within the extension directory based on parsed tokens.
     set -l search_path "$base_path"
-    set -l valid_path 1 
+    set -l valid_path 1 # Flag to indicate if the path constructed so far is valid
 
     for t in $path_tokens
         if test -d "$search_path/$t"
@@ -39,54 +49,59 @@ function __linux_helper_completions
         end
     end
 
-    # 4. Ausgabe-Logik
+    # 4. Completion Output Logic
+    # If the constructed path is valid and points to an existing directory,
+    # generate completions based on its contents.
     if test $valid_path -eq 1 && test -d "$search_path"
         
-        # A) Prüfen: Gibt es hier Unterordner?
-        # Wir nutzen einen Glob mit Slash am Ende, um nur Verzeichnisse zu matchen
+        # A) Check for subdirectories (further subcommands)
+        # Use a glob with a trailing slash to match only directories.
         set -l subdirs $search_path/*/
         
         if test (count $subdirs) -gt 0
-            # --- FALL 1: Es gibt weitere Unterbefehle ---
+            # --- CASE 1: Further Subcommands Exist ---
+            # Iterate through subdirectories and provide them as completions.
             for dir in $subdirs
                 set -l name (basename "$dir")
                 set -l info_file "$dir/info"
-                set -l description "-"
+                set -l description "-" # Default description if no info file is found
 
                 if test -r "$info_file"
+                    # Read the first line of the 'info' file for the description.
                     set -l content (head -n 1 "$info_file" 2>/dev/null | string trim)
                     if test -n "$content"
                         set description "$content"
                     end
                 end
 
+                # Output the subcommand name and its description.
                 printf "%s\t%s\n" "$name" "$description"
             end
 
         else
-            # --- FALL 2: Sackgasse (Endpunkt) -> Hilfetext anzeigen ---
-            # Wir suchen nach einer 'usage' Datei in diesem Ordner
+            # --- CASE 2: Endpoint Reached (No more subdirectories) -> Display Usage Help ---
+            # Look for a 'usage' file in the current directory.
             set -l usage_file "$search_path/usage"
             
             if test -r "$usage_file"
-                # Wir lesen die erste Zeile der Usage-Datei
+                # Read the first line of the 'usage' file for a usage hint.
                 set -l usage_text (head -n 1 "$usage_file" 2>/dev/null | string trim)
                 
-                # TRICK: Wir geben keine Vervollständigung aus (leerer String vor dem \t),
-                # sondern nur die Beschreibung. Fish zeigt das oft als Hinweis an.
-                # Damit man es sicher sieht, geben wir einen generischen Platzhalter aus,
-                # oder wir nutzen das aktuelle Wort, damit der Text daneben erscheint.
-                
+                # TRICK: Output a hint without providing an actual completion string.
+                # Fish often displays such text as a suggestion or note.
                 if test -n "$usage_text"
-                    # Hier geben wir einen Hinweis aus, der nicht stört
-                    # Das Format ":\tText" sorgt dafür, dass Fish den Text anzeigt,
-                    # aber nichts Falsches in die Befehlszeile einfügt.
-                    printf "\t%s\n" "HINWEIS: $usage_text"
+                    # The format ":\tText" tells Fish to display the text without
+                    # inserting anything into the command line.
+                    printf "\t%s\n" "HINT: $usage_text"
                 end
             end
         end
     end
 end
 
+# Disable default completions for 'linux-helper' to use our custom logic.
 complete -c linux-helper -e 
+# Attach our custom completion function to 'linux-helper'.
+# The '-f' flag forces fish to use this completion, '-k' preserves existing options,
+# and '-a' specifies the function to call for completions.
 complete -c linux-helper -f -k -a "(__linux_helper_completions)"
