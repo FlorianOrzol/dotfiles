@@ -11,10 +11,10 @@ function update-all
 	echo "Updating system packages..."
     # Parse arguments for the function.
 	switch $argv
-		case '--no-confirm'
+		case '--noconfirm'
             # If '--noconfirm' is passed, set the variable to be used with package managers.
-			set -l noconfirm_pacman '-y' 
-			set -l noconfirm_yay '--no-confirm'
+			set -l noconfirm_pacman '--noconfirm' 
+			set -l noconfirm_yay '--noconfirm'
 		case '--help'
             # If '--help' is passed, display the help message and exit.
 			__update_all_help

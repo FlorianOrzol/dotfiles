@@ -13,6 +13,16 @@ function dotfiles --description 'Manager for Bare-Repo Dotfiles'
     # The first argument determines the subcommand to execute.
     set -l cmd $argv[1]
 
+	#security, if no .gitignore file exists in either repo, create one that ignores everything
+	if not test -f $HOME/.gitignore
+
+		# throw out a warning
+		echo (set_color red)"⚠ Warning: No .gitignore file found in home directory. 
+		Creating a default one that ignores everything."(set_color normal)
+		# exit the function
+		echo "*" > $HOME/.gitignore
+	end
+
     switch $cmd
         # --- 1. Public Repo Wrapper ---
         case public
@@ -71,6 +81,7 @@ function dotfiles --description 'Manager for Bare-Repo Dotfiles'
 			if test $response = 'y'
 				# Force-add the file/directory to the public Git repository.
 				/usr/bin/git --git-dir=$public_git --work-tree=$HOME add -f $argv[2..-1]
+				dotfiles private-add $argv[2..-1] # Also add to private repo for backup.
 				echo (set_color green)"✔ Added to Public Repo"(set_color normal)
 			end 
 
