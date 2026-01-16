@@ -25,6 +25,7 @@ zoxide init fish | source
 fnm env --use-on-cd | source
 # mcfly: A new and improved shell history search tool with AI-powered suggestions.
 mcfly init fish | source
+#alias my-testt='linux-mate my-testt'
 
 
 # Define common abbreviations and aliases for frequently used commands

@@ -15,7 +15,6 @@ function dotfiles --description 'Manager for Bare-Repo Dotfiles'
 
 	#security, if no .gitignore file exists in either repo, create one that ignores everything
 	if not test -f $HOME/.gitignore
-
 		# throw out a warning
 		echo (set_color red)"⚠ Warning: No .gitignore file found in home directory. 
 		Creating a default one that ignores everything."(set_color normal)

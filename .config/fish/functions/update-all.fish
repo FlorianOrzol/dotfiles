@@ -10,11 +10,11 @@ complete -c update-all -f -a '--help' -d 'Show help information for the update-a
 function update-all
 	echo "Updating system packages..."
     # Parse arguments for the function.
+	set -l noconfirm ''
 	switch $argv
 		case '--noconfirm'
             # If '--noconfirm' is passed, set the variable to be used with package managers.
-			set -l noconfirm_pacman '--noconfirm' 
-			set -l noconfirm_yay '--noconfirm'
+			set noconfirm '--noconfirm' 
 		case '--help'
             # If '--help' is passed, display the help message and exit.
 			__update_all_help
@@ -27,14 +27,13 @@ function update-all
 	# Update for pacman (Arch Linux package manager).
 	if type -q pacman
 		echo "Updating pacman packages..."
-
-		sudo pacman -Syu $noconfirm_pacman
+		sudo pacman -Syu $noconfirm
 	end
 
 	# Update for yay (AUR helper for Arch Linux).
 	if type -q yay
 		echo "Updating yay packages..."
-		yay -Syu $noconfirm_yay
+		yay -Syu $noconfirm
 	end
 
 	# Update npm (Node.js package manager) global packages.

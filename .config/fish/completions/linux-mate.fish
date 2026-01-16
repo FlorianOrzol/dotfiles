@@ -1,0 +1,1 @@
+/usr/local/share/linux-mate/externals/.config/fish/completions/linux-mate.fish
