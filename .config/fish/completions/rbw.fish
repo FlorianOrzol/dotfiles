@@ -1,53 +1,31 @@
-# This file provides comprehensive shell completions for the `rbw` (Bitwarden CLI) command.
-# It leverages Fish's completion engine to offer context-aware suggestions for `rbw`'s subcommands and options.
-
-# Helper function: `__fish_rbw_global_optspecs`
-# Prints a string in optspec format for argparse to identify global options (like -h/--help, -V/--version)
-# that are independent of any specific `rbw` subcommand.
+# Print an optspec for argparse to handle cmd's options that are independent of any subcommand.
 function __fish_rbw_global_optspecs
 	string join \n h/help V/version
 end
 
-# Helper function: `__fish_rbw_needs_command`
-# Determines if the current command line invocation requires a subcommand.
-# It parses the command line to check if a subcommand has already been provided.
-# Returns 0 if a subcommand is still needed, 1 otherwise.
 function __fish_rbw_needs_command
-	# Get the command line tokens and remove the 'rbw' command itself.
+	# Figure out if the current invocation already has a command.
 	set -l cmd (commandline -opc)
 	set -e cmd[1]
-	# Parse global options to exclude them from subcommand detection.
 	argparse -s (__fish_rbw_global_optspecs) -- $cmd 2>/dev/null
-	or return # If argparse fails, treat as no command yet.
-	
-	# If there's an argument after parsing global options, it's considered a subcommand.
+	or return
 	if set -q argv[1]
-		# Echo the subcommand to allow other functions to use it.
+		# Also print the command, so this can be used to figure out what it is.
 		echo $argv[1]
-		return 1 # A subcommand has been found.
+		return 1
 	end
-	return 0 # No subcommand yet, one is needed.
+	return 0
 end
 
-# Helper function: `__fish_rbw_using_subcommand`
-# Checks if a specific `rbw` subcommand is currently being used on the command line.
-# Takes a list of subcommands as arguments.
 function __fish_rbw_using_subcommand
 	set -l cmd (__fish_rbw_needs_command)
-	test -z "$cmd" # If no command is found, it means no subcommand is being used.
+	test -z "$cmd"
 	and return 1
-	# Check if the found subcommand is within the list of provided subcommands.
 	contains -- $cmd[1] $argv
 end
 
-
-# --- Global Completions (apply when no subcommand is specified yet) ---
-# Completions for global options like --help and --version.
 complete -c rbw -n "__fish_rbw_needs_command" -s h -l help -d 'Print help'
 complete -c rbw -n "__fish_rbw_needs_command" -s V -l version -d 'Print version'
-
-# --- Subcommand Completions ---
-# Completions for main `rbw` subcommands.
 complete -c rbw -n "__fish_rbw_needs_command" -f -a "config" -d 'Get or set configuration options'
 complete -c rbw -n "__fish_rbw_needs_command" -f -a "register" -d 'Register this device with the Bitwarden server'
 complete -c rbw -n "__fish_rbw_needs_command" -f -a "login" -d 'Log in to the Bitwarden server'
@@ -72,15 +50,11 @@ complete -c rbw -n "__fish_rbw_needs_command" -f -a "purge" -d 'Remove the local
 complete -c rbw -n "__fish_rbw_needs_command" -f -a "stop-agent" -d 'Terminate the background agent'
 complete -c rbw -n "__fish_rbw_needs_command" -f -a "gen-completions" -d 'Generate completion script for the given shell'
 complete -c rbw -n "__fish_rbw_needs_command" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
-# --- Completions for 'config' subcommand ---
-# Global options for 'config' subcommand when no further subcommand is seen.
 complete -c rbw -n "__fish_rbw_using_subcommand config; and not __fish_seen_subcommand_from show set unset help" -s h -l help -d 'Print help'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and not __fish_seen_subcommand_from show set unset help" -f -a "show" -d 'Show the values of all configuration settings'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and not __fish_seen_subcommand_from show set unset help" -f -a "set" -d 'Set a configuration option'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and not __fish_seen_subcommand_from show set unset help" -f -a "unset" -d 'Reset a configuration option to its default'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and not __fish_seen_subcommand_from show set unset help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
-
-# Context-specific help for config subcommands (after 'help' or another subcommand is seen)
 complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcommand_from show" -s h -l help -d 'Print help'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcommand_from set" -s h -l help -d 'Print help'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcommand_from unset" -s h -l help -d 'Print help'
@@ -88,32 +62,24 @@ complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcomma
 complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcommand_from help" -f -a "set" -d 'Set a configuration option'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcommand_from help" -f -a "unset" -d 'Reset a configuration option to its default'
 complete -c rbw -n "__fish_rbw_using_subcommand config; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
-# --- Completions for other subcommands ---
-# Completions for 'register' subcommand.
 complete -c rbw -n "__fish_rbw_using_subcommand register" -s h -l help -d 'Print help (see more with \'--help\')'
-# Completions for 'login' subcommand.
 complete -c rbw -n "__fish_rbw_using_subcommand login" -s h -l help -d 'Print help'
-# Completions for 'unlock' subcommand.
 complete -c rbw -n "__fish_rbw_using_subcommand unlock" -s h -l help -d 'Print help'
-# Completions for 'unlocked' subcommand.
 complete -c rbw -n "__fish_rbw_using_subcommand unlocked" -s h -l help -d 'Print help'
-# Completions for 'sync' subcommand.
 complete -c rbw -n "__fish_rbw_using_subcommand sync" -s h -l help -d 'Print help'
-
-# Completions for `list` and `ls` subcommands.
-complete -c rbw -n "__fish_rbw_using_subcommand list" -l fields -d 'Fields to display. Available options are id, name, user, folder. Multiple fields will be separated by tabs.' -r
+complete -c rbw -n "__fish_rbw_using_subcommand list" -l fields -d 'Fields to display. Available options are id, name, user, folder, type. Multiple fields will be separated by tabs.' -r
 complete -c rbw -n "__fish_rbw_using_subcommand list" -l raw -d 'Display output as JSON'
 complete -c rbw -n "__fish_rbw_using_subcommand list" -s h -l help -d 'Print help'
-complete -c rbw -n "__fish_rbw_using_subcommand ls" -l fields -d 'Fields to display. Available options are id, name, user, folder. Multiple fields will be separated by tabs.' -r
+complete -c rbw -n "__fish_rbw_using_subcommand ls" -l fields -d 'Fields to display. Available options are id, name, user, folder, type. Multiple fields will be separated by tabs.' -r
 complete -c rbw -n "__fish_rbw_using_subcommand ls" -l raw -d 'Display output as JSON'
 complete -c rbw -n "__fish_rbw_using_subcommand ls" -s h -l help -d 'Print help'
-# Completions for `get` subcommand
 complete -c rbw -n "__fish_rbw_using_subcommand get" -l folder -d 'Folder name to search in' -r
 complete -c rbw -n "__fish_rbw_using_subcommand get" -s f -l field -d 'Field to get' -r
 complete -c rbw -n "__fish_rbw_using_subcommand get" -s i -l ignorecase -d 'Ignore case'
 complete -c rbw -n "__fish_rbw_using_subcommand get" -l full -d 'Display the notes in addition to the password'
 complete -c rbw -n "__fish_rbw_using_subcommand get" -l raw -d 'Display output as JSON'
 complete -c rbw -n "__fish_rbw_using_subcommand get" -s c -l clipboard -d 'Copy result to clipboard'
+complete -c rbw -n "__fish_rbw_using_subcommand get" -s l -l list-fields -d 'List fields in this entry'
 complete -c rbw -n "__fish_rbw_using_subcommand get" -s h -l help -d 'Print help'
 complete -c rbw -n "__fish_rbw_using_subcommand search" -l fields -d 'Fields to display. Available options are id, name, user, folder. Multiple fields will be separated by tabs.' -r
 complete -c rbw -n "__fish_rbw_using_subcommand search" -l folder -d 'Folder name to search in' -r
@@ -183,46 +149,82 @@ complete -c rbw -n "__fish_rbw_using_subcommand help; and not __fish_seen_subcom
 complete -c rbw -n "__fish_rbw_using_subcommand help; and __fish_seen_subcommand_from config" -f -a "show" -d 'Show the values of all configuration settings'
 complete -c rbw -n "__fish_rbw_using_subcommand help; and __fish_seen_subcommand_from config" -f -a "set" -d 'Set a configuration option'
 complete -c rbw -n "__fish_rbw_using_subcommand help; and __fish_seen_subcommand_from config" -f -a "unset" -d 'Reset a configuration option to its default'
-# Helper function: `__fish_rbw_get`
-# Provides dynamic completions for `rbw get` by listing available entry names and folders.
-function __fish_rbw_get
-    # Get the complete command line arguments for the current invocation.
+function __fish_rbw_get_completion_name
     set -l cmd (commandline -xpc)
-    # Remove the 'rbw' command from the list of arguments.
-    set -e cmd[1] 
+    set -e cmd[1] # rbw
 
-    # Parse arguments for `rbw get` to identify options like folder, field, etc.
-    # The '-i' flag ignores unknown options, and '--' separates options from positional arguments.
-    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help -- $cmd
-    # Remove the 'get' subcommand from the list of arguments.
-    set -e argv[1] 
+    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    set -e argv[1] # get
 
-    # Iterate through all Bitwarden entries, fetching their folder, name, and user fields.
-    for entry in (rbw list --fields folder,name,user)
-        # Split the entry string by tab to get individual fields.
-        set -l fields (string split \t "$entry")
-        # Check if a folder flag is provided. If so, filter entries by that folder.
-        if not set -q _flag_folder || [ "$fields[1]" = "$_flag_folder" ]
-            switch (count $argv)
-                case 0
-                    # If no arguments are provided yet, suggest the entry names.
-                    echo $fields[2]
-                case 1
-                    # If one argument is provided and it matches an entry name, suggest its associated user.
-                    if [ "$fields[2]" = "$argv[1]" ]
-                        echo $fields[3]
-                    end
+    set -l candidates (command rbw list --fields name,folder,user)
+    # if folder is set, filter by it
+    if set -q _flag_folder
+        set candidates (printf '%s\n' $candidates | string match -er "^[^\t]*\t$_flag_folder\t")
+    end
+
+    switch (count $argv)
+        case 0
+            # print completion for NAME argument in the format of
+            # NAME   (USERNAME [FOLDER])
+            printf '%s\n' $candidates | while read -l line
+                set --local parts (string split \t $line)
+
+                set --local _name $parts[1]
+                set --local _folder $parts[2]
+                set --local _user $parts[3]
+
+                if test -n "$_folder"
+                    printf '%s\t%s [%s]\n' $_name $_user $_folder
+                else
+                    printf '%s\t%s\n' $_name $_user
+                end
             end
-        end
+        case 1
+            # filter by NAME
+            set candidates (printf '%s\n' $candidates | string match -er "^$argv[1]\t")
+            # print completion for USER argument in the format of
+            # USER   ([FOLDER])
+            printf '%s\n' $candidates | while read -l line
+                set --local parts (string split \t $line)
+
+                set --local _user $parts[3]
+                if test "$_user" != ""
+                    # non-empty
+                    set --local _folder $parts[2]
+                    if test -n "$_folder"
+                        printf '%s\t[%s]\n' $_user $_folder
+                    else
+                        printf '%s\n' $_user
+                    end
+                end
+            end
     end
 end
 
-# Erase all existing completions for `rbw get` to ensure our custom ones are used.
-complete -e -c rbw -n "__fish_rbw_using_subcommand get" 
-# Provide dynamic folder completions for the `--folder` option.
-# The '-r' flag indicates that this is a "real" option, and '-f -a "(rbw list --fields folder)"'
-# executes a command to generate the completion list.
-complete -c rbw -n "__fish_rbw_using_subcommand get" -l folder -d 'Folder name to search in' -r -f -a "(rbw list --fields folder)"
-# Provide dynamic entry name and user completions using the `__fish_rbw_get` helper function.
-complete -c rbw -n "__fish_rbw_using_subcommand get" -f -a "(__fish_rbw_get)"
+function __fish_rbw_get_completion_fields
+    set -l cmd (commandline -xpc)
+    set -e cmd[1] # rbw
+    if test -z "$(commandline -xpt)"
+        set -e cmd[-1] # -f/--field
+    end
+
+    argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd
+    set -e argv[1] # get
+
+    if test (count $argv) -gt 0
+        command rbw get "$argv[1]" --list-fields 2>/dev/null
+    end
+end
+
+complete -f -c rbw -n '__fish_seen_subcommand_from get edit' -a '(__fish_rbw_get_completion_name)'
+
+# Complete options for `rbw get`
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -s i -l ignorecase -d 'Ignore case'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -s f -l field -r -d 'Field to get' -a '(__fish_rbw_get_completion_fields)'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -s l -l list-fields -r -d 'List fields in this entry'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -l folder -r -d 'Folder name to search in' -a '(command rbw list --fields folder)'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -l full -d 'Display the notes in addition to the password'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -l raw -d 'Display output as JSON'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -s c -l clipboard -d 'Copy result to clipboard'
+complete -f -c rbw -n '__fish_seen_subcommand_from get' -s h -l help -d 'Print help'
 

@@ -27,6 +27,14 @@ fnm env --use-on-cd | source
 mcfly init fish | source
 #alias my-testt='linux-mate my-testt'
 
+# move backward in directory tree
+abbr -a ... '../..'
+abbr -a .... '../../..'
+abbr -a ..... '../../../..'
+abbr -a ...... '../../../../..'
+
+# my personal abbreviations and aliases
+abbr -a e 'lpex'
 
 # Define common abbreviations and aliases for frequently used commands
 # 'l' (list): Abbreviation for 'exa' with default options for listing files.
@@ -35,8 +43,10 @@ abbr -a l '_exa'
 abbr -a la '_exa -la'
 # 'll' (long list): Abbreviation for 'exa -l' to list files in long format.
 abbr -a ll '_exa -l'
-# 'lt' (tree list): Abbreviation for 'exa -lT' to list files in a tree-like format.
-abbr -a lt '_exa -lT'
+# 'lt' (tree list): Abbreviation for 'exa -T' to list files in a tree-like format.
+abbr -a lt '_exa -T'
+# 'llt' (long tree list): Abbreviation for 'exa -lT' to list files in long format in a tree-like structure.
+abbr -a llt '_exa -lT'
 # 'lr' (recursive list): Abbreviation for 'exa -lR' to list files recursively.
 abbr -a lr '_exa -lR'
 # Alias for 'exa': Configures 'exa' with icons, grouped directories, human-readable sizes, and Git status.
