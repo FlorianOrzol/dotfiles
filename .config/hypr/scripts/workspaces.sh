@@ -19,7 +19,8 @@
 
 MONITOR_MAIN_NAME="DP-1"
 MONITOR_LEFT_NAME="HDMI-A-1"
-MONITOR_RIGHT_NAME="HDMI-A-2"
+MONITOR_RIGHT_NAME="DP-2"
+MONITOR_INFO_NAME="HDMI-A-2"
 MONITOR_MAIN_ID="0"
 MONITOR_LEFT_ID="2"
 MONITOR_RIGHT_ID="1"
@@ -139,6 +140,7 @@ function Create_new_Desktop() {
 			Switch_to_WorkspaceID "${i}${MONITOR_LEFT_ID}1"
 			Switch_to_WorkspaceID "${i}${MONITOR_RIGHT_ID}1"
 			Switch_to_WorkspaceID "${i}${MONITOR_MAIN_ID}1"
+			Switch_to_WorkspaceID "${i}${MONITOR_INFO_ID}1"
 			break
 		fi
 	done
@@ -166,6 +168,7 @@ function Create_Desktop_and_move_current_window() {
 	[[ $monitorID == "left" ]] && monitorID="$MONITOR_LEFT_ID"
 	[[ $monitorID == "right" ]] && monitorID="$MONITOR_RIGHT_ID"
 	[[ $monitorID == "main" ]] && monitorID="$MONITOR_MAIN_ID"
+	[[ $monitorID == "info" ]] && monitorID="$MONITOR_INFO_ID"
 
 	[[ -z "$workspaceNumber" ]] && workspaceNumber="1"
 
@@ -187,6 +190,7 @@ function Create_Desktop_and_move_current_window() {
 			Switch_to_WorkspaceID "${i}${MONITOR_LEFT_ID}1"
 			Switch_to_WorkspaceID "${i}${MONITOR_RIGHT_ID}1"
 			Switch_to_WorkspaceID "${i}${MONITOR_MAIN_ID}1"
+			Switch_to_WorkspaceID "${i}${MONITOR_INFO_ID}1"
 			Switch_to_WorkspaceID "${i}${monitorID}1"
 			break
 		fi
@@ -219,6 +223,7 @@ function Switch_to_Desktop_by_name() {
 	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "${desktopName:0:2}" "$MONITOR_MAIN_ID")"
 	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "${desktopName:0:2}" "$MONITOR_LEFT_ID")"
 	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "${desktopName:0:2}" "$MONITOR_RIGHT_ID")"
+	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "${desktopName:0:2}" "$MONITOR_INFO_ID")"
 
 	sleep $SLEEP_TIME
 	hyprctl dispatch focusmonitor ${currentWorkspaceID:2:1} > /dev/null 2>&1
@@ -254,6 +259,7 @@ function Switch_to_Desktop_by_number() {
 	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "$desktopNumber" "$MONITOR_MAIN_ID")"
 	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "$desktopNumber" "$MONITOR_LEFT_ID")"
 	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "$desktopNumber" "$MONITOR_RIGHT_ID")"
+	Switch_to_WorkspaceID "$(Get_saved_active_workspace_for_monitor "$desktopNumber" "$MONITOR_INFO_ID")"
 	sleep $SLEEP_TIME
 	hyprctl dispatch focusmonitor ${currentWorkspaceID:2:1} > /dev/null 2>&1
 	
@@ -523,6 +529,7 @@ function Move_current_Window_to_Desktop_by_name() {
 	[[ $monitorID == "left" ]] && monitorID="$MONITOR_LEFT_ID"
 	[[ $monitorID == "right" ]] && monitorID="$MONITOR_RIGHT_ID"
 	[[ $monitorID == "main" ]] && monitorID="$MONITOR_MAIN_ID"
+	[[ $monitorID == "info" ]] && monitorID="$MONITOR_INFO_ID"
 
 
 	[[ -z "$workspaceNumber" ]] && workspaceNumber="1"
@@ -571,6 +578,7 @@ function Move_current_Window_to_Monitor_by_name() {
 	[[ $monitorID == "left" ]] && monitorID="$MONITOR_LEFT_ID"
 	[[ $monitorID == "right" ]] && monitorID="$MONITOR_RIGHT_ID"
 	[[ $monitorID == "main" ]] && monitorID="$MONITOR_MAIN_ID"
+	[[ $monitorID == "info" ]] && monitorID="$MONITOR_INFO_ID"
 
 	[[ -z "$workspaceNumber" ]] && workspaceNumber="1"
 
@@ -636,6 +644,7 @@ function Switch_to_Monitor_on_Current_Desktop_by_name() {
 	[[ $monitorName == "left" ]] && monitorID="$MONITOR_LEFT_ID"
 	[[ $monitorName == "right" ]] && monitorID="$MONITOR_RIGHT_ID"
 	[[ $monitorName == "main" ]] && monitorID="$MONITOR_MAIN_ID"
+	[[ $monitorName == "info" ]] && monitorID="$MONITOR_INFO_ID"
 
 	[[ -z "$workspaceNumber" ]] && workspaceNumber="1"
 
@@ -898,7 +907,7 @@ function Cleanup_active_Workspaces() {
 	local activeDesktops=()
 	Get_available_Desktops activeDesktops
 
-	local monitors=("$MONITOR_MAIN_ID" "$MONITOR_LEFT_ID" "$MONITOR_RIGHT_ID")
+	local monitors=("$MONITOR_MAIN_ID" "$MONITOR_LEFT_ID" "$MONITOR_RIGHT_ID" "$MONITOR_INFO_ID")
 
 	for desktop in "${activeDesktops[@]}"; do
 		for monitor in "${monitors[@]}"; do
