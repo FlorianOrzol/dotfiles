@@ -38,19 +38,21 @@ abbr -a e 'lpex'
 
 # Define common abbreviations and aliases for frequently used commands
 # 'l' (list): Abbreviation for 'exa' with default options for listing files.
-abbr -a l '_exa'
+abbr -a l '_eza'
 # 'la' (list all): Abbreviation for 'exa -la' to list all files, including hidden ones.
-abbr -a la '_exa -la'
+abbr -a la '_eza -la'
 # 'll' (long list): Abbreviation for 'exa -l' to list files in long format.
-abbr -a ll '_exa -l'
+abbr -a ll '_eza -l'
 # 'lt' (tree list): Abbreviation for 'exa -T' to list files in a tree-like format.
-abbr -a lt '_exa -T'
+abbr -a lt '_eza -T'
 # 'llt' (long tree list): Abbreviation for 'exa -lT' to list files in long format in a tree-like structure.
-abbr -a llt '_exa -lT'
+abbr -a llt '_eza -lT'
 # 'lr' (recursive list): Abbreviation for 'exa -lR' to list files recursively.
-abbr -a lr '_exa -lR'
+abbr -a lr '_eza -lR'
 # Alias for 'exa': Configures 'exa' with icons, grouped directories, human-readable sizes, and Git status.
-alias _exa='exa --icons --group-directories-first -M -h --git'
+alias _eza='eza --icons --color always --group-directories-first -M -h --git'
+# 'lf' is for finding files with 'fd', using a custom header and color settings.
+alias lf='fd -H'
 # Alias for 'vim': Redirects 'vim' command to 'nvim' (Neovim).
 alias vim='nvim'
 # Alias for 'google-chrome-stable': Launches Chrome with Wayland support.
