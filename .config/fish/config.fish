@@ -51,8 +51,6 @@ abbr -a llt '_eza -lT'
 abbr -a lr '_eza -lR'
 # Alias for 'exa': Configures 'exa' with icons, grouped directories, human-readable sizes, and Git status.
 alias _eza='eza --icons --color always --group-directories-first -M -h --git'
-# 'lf' is for finding files with 'fd', using a custom header and color settings.
-alias lf='fd -H'
 # Alias for 'vim': Redirects 'vim' command to 'nvim' (Neovim).
 alias vim='nvim'
 # Alias for 'google-chrome-stable': Launches Chrome with Wayland support.
@@ -62,9 +60,20 @@ abbr -a x 'linux-helper -xd'
 # 'p': Abbreviation for 'keys get -c' to securely get a password from the password manager and copy to clipboard.
 abbr -a p 'keys get -c'
 
+set -gx FZF_DEFAULT_COMMAND 'fd --type f --hidden --exclude .git'
 
-
-
+# Custom function `lf`: A wrapper around 'fd' that allows searching for files using multiple substrings.
+function lf --description "Sucht mit fd über mehrere Teilstrings"
+	# Check if any search terms are provided; if not, display usage information and return an error.
+    if test (count $argv) -eq 0
+        echo "Usage: lf <search terms>"
+        return 1
+    end
+	# Joins the parts of the search string with '.*' 
+    set -l search_string (string join '.*' $argv)
+	# Execute the finding command 
+    fd -H -p $search_string
+end
 
 # Custom function `ffzf`: Provides an interactive fuzzy finder for files.
 # Uses 'fzf' to display a list of files with a custom header, key binding for opening,
