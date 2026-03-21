@@ -1,56 +1,88 @@
+#!/bin/bash
 function extension_start() {
     source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     local active_host=$(get_active_host)
     
     local target_ctids=("${ARG_CTID[@]}")
-    local local_files=("${ARG_LOCAL_FILE[@]}")
-    local remote_dest="${ARG_REMOTE_DEST[0]}"
+    local local_paths=("${ARG_LOCAL_FILE[@]}")
 
-    if [[ ${#target_ctids[@]} -eq 0 || ${#local_files[@]} -eq 0 || -z "$remote_dest" ]]; then
-        output --error "Usage: lpex server container push --ctid <ID> --local-file <file> --remote-dest <path>"
+    if [[ ${#target_ctids[@]} -eq 0 || ${#local_paths[@]} -eq 0 ]]; then
+        output --error "Usage: lpex server container push --ctid <ID> --local-file <relative/path>"
         return 1
     fi
 
-    local global_dir=$(ensure_payload_dir "configs" "global")
+    local global_dir=$(ensure_fs_dir "global")
 
     for ctid in "${target_ctids[@]}"; do
         output --section "Pushing to CT $ctid"
-        local specific_dir=$(ensure_payload_dir "configs" "container" "$ctid")
+        local specific_dir=$(ensure_fs_dir "container" "$ctid")
         
-        for file_path in "${local_files[@]}"; do
-            output --info "Preparing config: $file_path"
-            local abs_file=""
+        for file_path in "${local_paths[@]}"; do
+            output --info "Preparing: $file_path"
             
-            if [[ "$file_path" == /* ]] && [[ -f "$file_path" ]]; then
-                abs_file="$file_path"
-            elif [[ -f "$specific_dir/$file_path" ]]; then
+            # Strip trailing slash from input for consistent logic
+            file_path="${file_path%/}"
+            
+            local abs_file=""
+            local remote_dest="/${file_path#/}"
+            
+            if [[ "$file_path" == /* ]] && [[ -e "$file_path" ]]; then
+                output --error "Please use relative paths from the local filesystem."
+                continue
+            elif [[ -e "$specific_dir/$file_path" ]]; then
                 abs_file="$(realpath "$specific_dir/$file_path")"
-            elif [[ -f "$global_dir/$file_path" ]]; then
+                output --info "Using container-specific path."
+            elif [[ -e "$global_dir/$file_path" ]]; then
                 abs_file="$(realpath "$global_dir/$file_path")"
+                output --info "Using global path pool."
             else
-                output --error "Config file not found: $file_path"
+                output --error "Path not found: $file_path"
                 continue
             fi
 
-            local file_name=$(basename "$abs_file")
+            local safe_name=$(basename "$abs_file")
             
-            local final_dest="$remote_dest"
-            if (( ${#local_files[@]} > 1 )); then
-                [[ "$final_dest" != */ ]] && final_dest="$final_dest/"
-                final_dest="$final_dest$file_name"
-            fi
-            
-            output --info "-> Uploading to Host /tmp..."
-            if ! lx cmd --run "rsync -avz '$abs_file' root@$active_host:/tmp/$file_name" --quiet --error-msg "Rsync failed"; then continue; fi
-
-            output --info "-> Injecting into Container ($final_dest)..."
-            if lx cmd --run "ssh root@$active_host 'pct push $ctid /tmp/$file_name \"$final_dest\"'" --quiet; then
-                output --ok "Success: $file_name -> $final_dest"
+            if [[ -d "$abs_file" ]]; then
+                output --info "Target is a DIRECTORY. Packing tarball..."
+                local local_tar="/tmp/lpex_push_local.tar.gz"
+                # Pack the contents of the directory
+                tar -czf "$local_tar" -C "$abs_file" .
+                
+                output --info "-> Uploading Tarball to Host /tmp..."
+                if ! lx cmd --run "rsync -avz '$local_tar' root@$active_host:/tmp/$safe_name.tar.gz" --quiet --error-msg "Rsync failed"; then continue; fi
+                
+                output --info "-> Injecting into Container..."
+                if ! lx cmd --run "ssh root@$active_host 'pct push $ctid /tmp/$safe_name.tar.gz /tmp/$safe_name.tar.gz'" --quiet; then
+                    output --error "pct push failed."
+                    continue
+                fi
+                
+                output --info "-> Extracting in Container at $remote_dest..."
+                lx cmd --run "ssh root@$active_host 'pct exec $ctid -- bash -c \"mkdir -p \\\"$remote_dest\\\" && tar -xzf /tmp/$safe_name.tar.gz -C \\\"$remote_dest\\\"\"'" --quiet
+                
+                # Cleanup
+                rm -f "$local_tar"
+                lx cmd --run "ssh root@$active_host 'rm -f /tmp/$safe_name.tar.gz; pct exec $ctid -- rm -f /tmp/$safe_name.tar.gz'" --quiet
+                
+                output --ok "Success: Directory pushed to $remote_dest"
             else
-                output --error "pct push failed. Check remote path."
+                output --info "Target is a FILE."
+                output --info "-> Uploading to Host /tmp..."
+                if ! lx cmd --run "rsync -avz '$abs_file' root@$active_host:/tmp/$safe_name" --quiet --error-msg "Rsync failed"; then continue; fi
+
+                # Ensure parent directory exists in container before pushing a file
+                local remote_parent=$(dirname "$remote_dest")
+                lx cmd --run "ssh root@$active_host 'pct exec $ctid -- mkdir -p \"$remote_parent\"'" --quiet
+
+                output --info "-> Injecting into Container ($remote_dest)..."
+                if lx cmd --run "ssh root@$active_host 'pct push $ctid /tmp/$safe_name \"$remote_dest\"'" --quiet; then
+                    output --ok "Success: File pushed to $remote_dest"
+                else
+                    output --error "pct push failed."
+                fi
+                
+                lx cmd --run "ssh root@$active_host 'rm -f /tmp/$safe_name'" --quiet
             fi
-            
-            lx cmd --run "ssh root@$active_host 'rm -f /tmp/$file_name'" --quiet
         done
     done
 }

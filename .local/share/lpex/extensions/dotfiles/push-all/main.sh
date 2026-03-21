@@ -25,18 +25,14 @@ function extension_start() {
     # ==========================================================================
     output --section "Syncing Public Repo"
     
-    # We suppress the error output from "add ." because Git throws a non-zero exit code
-    # if it hits ignored files (like .local), which triggers our generic CMD error logic.
-    # We only care if diff-index says there are changes.
-    lx cmd --quiet --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME add ." 2>/dev/null
+    lx cmd --quiet --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME add ." 2>/dev/null || true
+    # FIX: Add -u to ensure already tracked files in ignored directories get updated!
+    lx cmd --quiet --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME add -u" 2>/dev/null || true
     
     if ! /usr/bin/git --git-dir=$public_git --work-tree=$HOME diff-index --quiet HEAD --; then
         lx cmd --quiet --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME commit -m '$msg'"
         
         output --info "Pushing Public Repo..."
-        # Remove --quiet here so the user can see WHY it fails (e.g. rejected, password prompt, etc.)
-        # Add --no-error-msg to prevent __cmd from printing its own generic error block,
-        # because we are handling the error gracefully right here with our own output --error.
         if lx cmd --no-error-msg --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME push -u origin HEAD"; then
             output --ok "Public Repo successfully pushed."
         else
@@ -51,14 +47,12 @@ function extension_start() {
     # ==========================================================================
     output --section "Syncing Private Repo"
     
-    lx cmd --quiet --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME add -u" 2>/dev/null
+    lx cmd --quiet --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME add -u" 2>/dev/null || true
     
     if ! /usr/bin/git --git-dir=$private_git --work-tree=$HOME diff-index --quiet HEAD --; then
         lx cmd --quiet --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME commit -m '$msg'"
         
         output --info "Pushing Private Repo..."
-        # Remove --quiet here so the user can see WHY it fails
-        # Add --no-error-msg to prevent double-printing the error.
         if lx cmd --no-error-msg --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME push -u origin HEAD"; then
             output --ok "Private Repo successfully pushed."
         else
