@@ -1,15 +1,10 @@
 #!/bin/bash
-
-# ==============================================================================
-# --- Arguments Definition ---
-# Module: dotfiles private-rm
-# ==============================================================================
-
 function arguments() {
-	# Accept one or multiple files/directories to remove.
-	arg_value @files \
-		--type "path" \
-		--multi \
-		--description "Files/Folders to remove from the private repo"
+    local tracker_file="$PATH_EXTENSION_DATA/private_tracked.txt"
+    local list_cmd="cat $tracker_file 2>/dev/null || true"
+    arg_value @files \
+        --multi \
+        --positional \
+        --option-cmd "$list_cmd" \
+        --description "Files/Folders to remove from the private repo"
 }
-
