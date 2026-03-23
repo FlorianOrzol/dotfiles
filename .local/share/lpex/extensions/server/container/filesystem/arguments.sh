@@ -1,9 +1,4 @@
 #!/bin/bash
-# ==============================================================================
-# --- Arguments Definition ---
-# Module: server container filesystem
-# ==============================================================================
-
 function arguments() {
     source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
@@ -18,7 +13,6 @@ function arguments() {
         [[ "${check_array[i]}" == "--global" ]] && is_global=1
     done
 
-    # Context aware find for autocompletion
     local list_cmd=""
     if (( is_global )); then
         list_cmd="cd ~/.local/state/lpex/data/server/global/container/filesystem/ 2>/dev/null && find . -type f | sed 's|^./||'"
@@ -28,7 +22,8 @@ function arguments() {
         list_cmd="find ~/.local/state/lpex/data/server/ -type f -path '*/filesystem/*' 2>/dev/null | awk -F'/filesystem/' '{print \$2}' | sort | uniq"
     fi
 
-    arg_value @add --description "Create a new file (e.g. etc/nginx/nginx.conf)"
-    arg_value @edit --option-cmd "$list_cmd" --description "Edit an existing file"
-    arg_value @delete --option-cmd "$list_cmd" --description "Delete an existing file"
+    arg_value @add --description "Create or Fetch a new file (e.g. etc/nginx/nginx.conf)"
+    arg_value @edit --option-cmd "$list_cmd" --description "Edit an existing local file"
+    arg_value @delete --option-cmd "$list_cmd" --description "Delete an existing local file"
+    arg_flag @remote --description "Used with --delete: Also delete the file on the remote container"
 }
