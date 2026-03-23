@@ -1,9 +1,16 @@
+#!/bin/bash
+# ==============================================================================
+# --- Main Execution ---
+# Module: server container control
+# Description: Manages the power state (Start, Stop, Restart) of an LXC container 
+# by executing 'pct' commands via SSH on the active host.
+# ==============================================================================
+
 function extension_start() {
     source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
-    local active_host
-    active_host=$(get_active_host)
-    
+    # 1. Resolve State
+    local active_host=$(get_active_host)
     local ctid="${ARG_CTID[0]:-${ARGS_EXTENSION_ARRAY[0]}}"
 
     if [[ -z "$ctid" ]]; then
@@ -11,7 +18,8 @@ function extension_start() {
         return 1
     fi
 
-    # Execute corresponding pct command over SSH and log it to the database
+    # 2. Execute Power Commands
+    # We log the execution to the LPEX database for audit trails.
     if (( ARG_START )); then
         if lx cmd --run "ssh root@$active_host pct start $ctid" --log --log-tags "lxc,start" --error-msg "Failed to start CT $ctid"; then
             output --ok "Started CT $ctid"

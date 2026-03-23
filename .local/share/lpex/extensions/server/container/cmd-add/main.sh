@@ -2,13 +2,14 @@
 # ==============================================================================
 # --- Main Execution ---
 # Module: server container cmd-add
-# Saves a specific command to the local SQLite database so it can be 
-# easily autocompleted and executed later via the 'exec' module.
+# Description: Saves a specific command to the local SQLite database. 
+# This allows the 'exec' module to autocomplete and run long commands easily.
 # ==============================================================================
 
 function extension_start() {
     source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
+    # 1. Resolve Arguments
     local ctid="${ARG_CTID[0]:-${ARGS_EXTENSION_ARRAY[0]}}"
     local cmd_alias="${ARG_ALIAS[0]:-${ARGS_EXTENSION_ARRAY[1]}}"
     local cmd_string="${ARG_CMD[0]:-${ARGS_EXTENSION_ARRAY[2]}}"
@@ -18,13 +19,13 @@ function extension_start() {
         return 1
     fi
 
-    # Ensure the database table exists before we try to write to it
+    # 2. Database Initialization
     init_command_db
 
     output --info "Saving command for CT $ctid..."
     
-    # We use SQLite REPLACE to overwrite the command if the alias already exists
-    # Requires raw SQL execution because the current lx db wrapper defaults to strict INSERT
+    # 3. Database Execution
+    # We use SQLite REPLACE to gracefully overwrite the command if the alias already exists.
     local sql="REPLACE INTO device_commands (target_type, target_id, alias, command) VALUES ('container', '$ctid', '$cmd_alias', '$cmd_string');"
     
     if lx db --file "commands.db" --exec "$sql" --quiet; then

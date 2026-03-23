@@ -2,12 +2,14 @@
 # ==============================================================================
 # --- Main Execution ---
 # Module: server container filesystem
-# Manages local files mirroring the remote container structure.
+# Description: Manages the local 'Tree Mirror' filesystem. Used to add, edit, 
+# or delete files locally before pushing them back to the container.
 # ==============================================================================
 
 function extension_start() {
     source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
+    # 1. Resolve Context
     local ctid="${ARG_CTID[0]:-${ARGS_EXTENSION_ARRAY[0]}}"
     local is_global=${ARG_GLOBAL:-0}
     
@@ -16,6 +18,7 @@ function extension_start() {
         return 1
     fi
     
+    # 2. Determine Target Directory
     local fs_dir
     if (( is_global )); then
         fs_dir=$(ensure_fs_dir "global")
@@ -25,10 +28,12 @@ function extension_start() {
         output --info "Target: Container $ctid Filesystem"
     fi
     
+    # ==========================================================================
     # --- ACTION: ADD ---
+    # ==========================================================================
     if [[ -n "${ARG_ADD[0]}" ]]; then
         local file_path="${ARG_ADD[0]}"
-        file_path="${file_path#/}" # Strip leading slash
+        file_path="${file_path#/}" # Strip leading slash to ensure relative path
         local full_path="$fs_dir/$file_path"
         
         if [[ -f "$full_path" ]]; then
@@ -37,22 +42,28 @@ function extension_start() {
             output --info "Creating new file: $file_path"
             mkdir -p "$(dirname "$full_path")"
             touch "$full_path"
+            # Auto-inject bash header if it looks like a script
             [[ "$file_path" == *.sh ]] && echo '#!/bin/bash' > "$full_path" && chmod +x "$full_path"
         fi
         nvim "$full_path"
         
+    # ==========================================================================
     # --- ACTION: EDIT ---
+    # ==========================================================================
     elif [[ -n "${ARG_EDIT[0]}" ]]; then
         local file_path="${ARG_EDIT[0]}"
         local target_file="$fs_dir/$file_path"
         
-        [[ ! -f "$target_file" ]] && target_file="$PATH_EXTENSION_DATA/$file_path" # Fallback
+        # Fallback if selected from global view
+        [[ ! -f "$target_file" ]] && target_file="$PATH_EXTENSION_DATA/$file_path"
         [[ ! -f "$target_file" ]] && { output --error "File not found: $file_path"; return 1; }
         
         output --info "Editing: $target_file"
         nvim "$target_file"
 
+    # ==========================================================================
     # --- ACTION: DELETE ---
+    # ==========================================================================
     elif [[ -n "${ARG_DELETE[0]}" ]]; then
         local file_path="${ARG_DELETE[0]}"
         local target_file="$fs_dir/$file_path"

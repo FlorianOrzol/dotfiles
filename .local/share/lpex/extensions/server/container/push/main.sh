@@ -1,31 +1,43 @@
 #!/bin/bash
+# ==============================================================================
+# --- Main Execution ---
+# Module: server container push
+# Description: Pushes files or directories from the local 'Tree Mirror' back 
+# into the unprivileged container. Auto-calculates remote destinations.
+# ==============================================================================
+
 function extension_start() {
     source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
-    local active_host=$(get_active_host)
     
+    # 1. Resolve Targets
+    local active_host=$(get_active_host)
     local target_ctids=("${ARG_CTID[@]}")
     local local_paths=("${ARG_LOCAL_FILE[@]}")
 
     if [[ ${#target_ctids[@]} -eq 0 || ${#local_paths[@]} -eq 0 ]]; then
-        output --error "Usage: lpex server container push --ctid <ID> --local-file <relative/path>"
+        output --error "Usage: lpex server container push <CTID> <relative/path>"
         return 1
     fi
 
     local global_dir=$(ensure_fs_dir "global")
 
+    # 2. Iterate Target Containers
     for ctid in "${target_ctids[@]}"; do
         output --section "Pushing to CT $ctid"
         local specific_dir=$(ensure_fs_dir "container" "$ctid")
         
+        # 3. Iterate Payload Paths
         for file_path in "${local_paths[@]}"; do
             output --info "Preparing: $file_path"
-            
-            # Strip trailing slash from input for consistent logic
-            file_path="${file_path%/}"
+            file_path="${file_path%/}" # Strip trailing slash
             
             local abs_file=""
+            
+            # --- The Magic: Auto-calculate Remote Dest ---
+            # Prepending a slash turns the local tree path into the absolute remote path
             local remote_dest="/${file_path#/}"
             
+            # --- Priority Shadowing Logic ---
             if [[ "$file_path" == /* ]] && [[ -e "$file_path" ]]; then
                 output --error "Please use relative paths from the local filesystem."
                 continue
@@ -42,10 +54,10 @@ function extension_start() {
 
             local safe_name=$(basename "$abs_file")
             
+            # 4. Pipeline Execution (File vs Directory)
             if [[ -d "$abs_file" ]]; then
                 output --info "Target is a DIRECTORY. Packing tarball..."
                 local local_tar="/tmp/lpex_push_local.tar.gz"
-                # Pack the contents of the directory
                 tar -czf "$local_tar" -C "$abs_file" .
                 
                 output --info "-> Uploading Tarball to Host /tmp..."
@@ -70,7 +82,7 @@ function extension_start() {
                 output --info "-> Uploading to Host /tmp..."
                 if ! lx cmd --run "rsync -avz '$abs_file' root@$active_host:/tmp/$safe_name" --quiet --error-msg "Rsync failed"; then continue; fi
 
-                # Ensure parent directory exists in container before pushing a file
+                # Ensure remote parent directory exists
                 local remote_parent=$(dirname "$remote_dest")
                 lx cmd --run "ssh root@$active_host 'pct exec $ctid -- mkdir -p \"$remote_parent\"'" --quiet
 
