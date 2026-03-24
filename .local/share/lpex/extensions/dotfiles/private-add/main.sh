@@ -9,12 +9,8 @@
 function extension_start() {
     # 1. Resolve Targets
     local target_files=("${ARG_FILES[@]}")
-    if [[ ${#target_files[@]} -eq 0 ]]; then
-        target_files=("${ARGS_EXTENSION_ARRAY[@]}")
     fi
     
-    if [[ ${#target_files[@]} -eq 0 ]]; then
-        output --error "Please specify files/folders to add (e.g. lpex dotfiles private-add ~/.ssh)"
         return 1
     fi
     
