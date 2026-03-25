@@ -5,14 +5,11 @@
 # ==============================================================================
 
 function arguments() {
-    source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
-    arg_value @ctid \
-        --fzf \
-        --description "Target Container ID" \
-        --option-cmd "$(get_lxc_completion_cmd)"
-        
-    arg_flag @start --description "Start Container"
-    arg_flag @stop --description "Stop Container"
-    arg_flag @restart --description "Restart Container"
+    arg_value @ctid --fzf --description "Target Container ID" --option-cmd "$(get_lxc_completion_cmd)"
+    
+    # State flags (Mutually exclusive by nature, handled logically in main)
+    arg_flag @start   --description "Power on the container"
+    arg_flag @stop    --description "Gracefully power off the container"
+    arg_flag @restart --description "Reboot the container"
 }

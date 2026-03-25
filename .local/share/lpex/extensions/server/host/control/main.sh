@@ -2,37 +2,47 @@
 # ==============================================================================
 # --- Main Execution ---
 # Module: server host control
-# Description: Manages the physical power state of Proxmox nodes.
-# Includes Wake-on-LAN/Shelly for starting, and ACPI/SSH for soft shutdowns.
+# Description: Orchestrates the physical power states of the Proxmox bare-metal 
+# servers via SSH or IoT relays.
 # ==============================================================================
 
 function extension_start() {
-    # 1. Resolve Target Node
-    local node="${ARG_NODE[0]:-${ARGS_EXTENSION_ARRAY[0]}}"
+    # --- 1. Infrastructure Validation ---
+    enforce_config_var "USER_PVE"
     
+    local node="${ARG_NODE[0]}"
     if [[ -z "$node" ]]; then
-        output --error "Host node required (e.g. pve102)."
+        output --error "Hardware Node Name required (--node)."
         return 1
     fi
 
-    # 2. Execute Power State Change
+    # ==========================================================================
+    # --- Feature: Hardware Power Dispatcher ---
+    # ==========================================================================
     if (( ARG_START )); then
-        output --section "Waking up $node"
+        output --section "Hardware Wakeup: $node"
         output --warn "TODO: Implement Shelly REST API call here."
         
     elif (( ARG_STOP )); then
-        # IP Mapping (To be moved to a DB lookup in the future)
-        local ip="10.0.101.1"
-        [[ "$node" == "pve102" ]] && ip="10.0.102.1"
-        [[ "$node" == "pve103" ]] && ip="10.0.103.1"
+        output --section "Graceful Shutdown: $node"
         
-        output --section "Shutting down $node"
+        # --- Feature: Dynamic IP Resolution ---
+        # Instead of hardcoded 'if pve102 then...', we construct the config variable 
+        # name dynamically based on the user's input.
+        local node_upper="${node^^}"
+        local ip_var="IP_$node_upper"
+        local ip="${!ip_var}"
         
-        # Execute soft shutdown and log to audit trail
-        if lx cmd --run "ssh root@$ip 'shutdown -h now'" --log --log-tags "host,stop"; then
-            output --ok "Shutdown signal successfully sent to $ip."
+        if [[ -z "$ip" ]]; then
+            output --error "Failed to resolve IP for $node. Please define $ip_var in your config.conf."
+            return 1
+        fi
+        
+        # Send ACPI signal via authenticated SSH
+        if lx cmd --run "ssh $USER_PVE@$ip 'shutdown -h now'" --log --log-tags "host,stop"; then
+            output --ok "ACPI Shutdown signal successfully dispatched to $ip."
         fi
     else
-        output --error "No action specified (--start, --stop)."
+        output --error "No action specified. Use --start or --stop."
     fi
 }

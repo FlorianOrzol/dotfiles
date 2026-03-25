@@ -1,9 +1,8 @@
 #!/bin/bash
 # ==============================================================================
 # --- Arguments Definition ---
-# Module: server container ssh
+# Module: server observer status
 # ==============================================================================
-
 function arguments() {
-    arg_value @ctid --fzf --description "Target Container ID" --option-cmd "$(get_lxc_completion_cmd)"
+    arg_value @node --description "Target Observer (pi1 or pi2)" --option "pi1" --option "pi2"
 }

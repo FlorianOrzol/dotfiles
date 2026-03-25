@@ -1,16 +1,19 @@
 #!/bin/bash
+# ==============================================================================
+# --- Arguments Definition ---
+# Module: server container push
+# ==============================================================================
+
 function arguments() {
-    source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
     arg_value @ctid --multi --fzf --description "Target Container(s)" --option-cmd "$(get_lxc_completion_cmd)"
         
     local current_ctid=""
-    local check_array=("${ARGS_ENTERED[@]}" "${ARGS_EXTENSION_ARRAY[@]}")
-    for (( i=0; i<${#check_array[@]}; i++ )); do
-        [[ "${check_array[i]}" == "--ctid" ]] && current_ctid="${check_array[i+1]}"
+    for (( i=0; i<${#ARGS_ENTERED[@]}; i++ )); do
+        [[ "${ARGS_ENTERED[i]}" == "--ctid" ]] && current_ctid="${ARGS_ENTERED[i+1]}"
     done
 
-    # We now use 'find .' without '-type f' so directories are also shown in completion!
+    # Dynamic File Tree for Autocompletion
     local list_cmd=""
     if [[ -n "$current_ctid" ]]; then
         list_cmd="cd ~/.local/state/lpex/data/server/container/$current_ctid/filesystem/ 2>/dev/null && find . | sed 's|^./||' | grep -v '^$'"

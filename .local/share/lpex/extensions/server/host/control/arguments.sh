@@ -1,11 +1,11 @@
+#!/bin/bash
+# ==============================================================================
+# --- Arguments Definition ---
+# Module: server host control
+# ==============================================================================
+
 function arguments() {
-    arg_value @node \
-        --fzf \
-        --description "Select Proxmox Node" \
-        --option "pve101 # 10.0.101.1 (Main)" \
-        --option "pve102 # 10.0.102.1 (Standby)" \
-        --option "pve103 # 10.0.103.1 (Standby)"
-        
-    arg_flag @start --description "Wake up via Shelly"
-    arg_flag @stop --description "Soft Shutdown via SSH"
+    arg_value @node   --description "Proxmox Node Name (e.g. pve102)"
+    arg_flag  @start  --description "Wake the physical node (WOL/Shelly)"
+    arg_flag  @stop   --description "Send an ACPI soft shutdown signal"
 }

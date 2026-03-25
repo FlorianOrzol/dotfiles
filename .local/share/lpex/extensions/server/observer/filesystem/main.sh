@@ -1,48 +1,41 @@
 #!/bin/bash
 # ==============================================================================
 # --- Main Execution ---
-# Module: server container filesystem
-# Description: The central hub for editing and managing local payloads.
+# Module: server observer filesystem
+# Description: The central hub for editing and managing local payloads for the Pi.
 # Implements the 'Smart Vault' to enforce immutable Git backups before overwriting.
 # ==============================================================================
 
 function extension_start() {
+    enforce_config_var "USER_OBSERVER"
     
-    # --- 1. Resolve Context ---
-    enforce_config_var "USER_PVE"
-
-    local active_host=$(get_active_host)
-    local ctid="${ARG_CTID[0]}"
+    local node="${ARG_NODE[0]}"
     local is_global=${ARG_GLOBAL:-0}
     
-    if [[ -z "$ctid" ]] && (( ! is_global )); then
-        output --error "Please specify a Container ID (--ctid) or use --global."
+    if [[ -z "$node" ]] && (( ! is_global )); then
+        output --error "Please specify a Node (--node) or use --global."
         return 1
     fi
     
-    # Calculate the targeted local directory based on scope
     local fs_dir
+    local ip=""
     if (( is_global )); then
-        fs_dir=$(ensure_fs_dir "global")
-        output --info "Target: Global Filesystem"
+        fs_dir=$(ensure_fs_dir "global" "observer")
+        output --info "Target: Global Observer Filesystem"
     else
-        fs_dir=$(ensure_fs_dir "container" "$ctid")
-        output --info "Target: Container $ctid Filesystem"
+        ip=$(get_observer_ip "$node")
+        fs_dir=$(ensure_fs_dir "observer" "$node")
+        output --info "Target: Observer $node Filesystem"
     fi
     
     # ==========================================================================
-    # --- ACTION: ADD (The Smart Vault Implementation) ---
-    # Creating a file locally is dangerous if it already exists on the server
-    # and has never been backed up. This function intercepts the creation,
-    # pulls the original from the server, and vaults it into the private Git repo.
+    # --- ACTION: ADD (The Smart Vault) ---
     # ==========================================================================
     if [[ -n "${ARG_ADD[0]}" ]]; then
-        local file_path="${ARG_ADD[0]}"
-        file_path="${file_path#/}" # Enforce relative path logic
+        local file_path="${ARG_ADD[0]#/}"
         local full_path="$fs_dir/$file_path"
         local remote_dest="/$file_path"
         
-        # Abort creation if we already have it locally
         if [[ -e "$full_path" ]]; then
             output --warn "Path already exists locally. Opening in editor..."
             nvim "$full_path"
@@ -52,30 +45,24 @@ function extension_start() {
         output --info "Preparing: $file_path"
         mkdir -p "$(dirname "$full_path")"
 
-        # --- Feature: Server Introspection ---
-        # Ping the server to see if we are about to overwrite a system file
-        if (( ! is_global )) && lx cmd --run "ssh $USER_PVE@$active_host 'pct exec $ctid -- [ -e \"$remote_dest\" ]'" --quiet --no-error-msg; then
-            output --warn "Path exists on Server! Executing Smart Vault Protocol..."
+        if (( ! is_global )) && lx cmd --run "ssh $USER_OBSERVER@$ip 'sudo [ -e \"$remote_dest\" ]'" --quiet --no-error-msg; then
+            output --warn "Path exists on Observer! Executing Smart Vault Protocol..."
             
             local safe_name=$(basename "$remote_dest")
-            local tmp_tar="/tmp/lpex_vault_${ctid}_${safe_name}.tar.gz"
+            local tmp_tar="/tmp/lpex_vault_${node}_${safe_name}.tar.gz"
             local local_tar="/tmp/lpex_vault_local.tar.gz"
 
-            # Phase 1: Secure Extraction
-            output --info "1. Fetching Original..."
+            output --info "1. Fetching Original via Sudo..."
             local is_dir=0
-            if lx cmd --run "ssh $USER_PVE@$active_host 'pct exec $ctid -- [ -d \"$remote_dest\" ]'" --quiet --no-error-msg; then
-                is_dir=1
-            fi
+            lx cmd --run "ssh $USER_OBSERVER@$ip 'sudo [ -d \"$remote_dest\" ]'" --quiet --no-error-msg && is_dir=1
 
             if (( is_dir )); then
-                lx cmd --run "ssh $USER_PVE@$active_host 'pct exec $ctid -- bash -c \"cd \\\"$remote_dest\\\" && tar -czf /tmp/vault.tar.gz .\"'" --quiet
+                lx cmd --run "ssh -t $USER_OBSERVER@$ip 'sudo bash -c \"cd \\\"$remote_dest\\\" && tar -czf $tmp_tar .\" && sudo chown $USER_OBSERVER:$USER_OBSERVER $tmp_tar'" --quiet
             else
-                lx cmd --run "ssh $USER_PVE@$active_host 'pct exec $ctid -- bash -c \"cd \\\"$(dirname "$remote_dest")\\\" && tar -czf /tmp/vault.tar.gz \\\"$safe_name\\\"\"'" --quiet
+                lx cmd --run "ssh -t $USER_OBSERVER@$ip 'sudo bash -c \"cd \\\"$(dirname "$remote_dest")\\\" && tar -czf $tmp_tar \\\"$safe_name\\\"\" && sudo chown $USER_OBSERVER:$USER_OBSERVER $tmp_tar'" --quiet
             fi
 
-            lx cmd --run "ssh $USER_PVE@$active_host 'pct pull $ctid /tmp/vault.tar.gz \"$tmp_tar\"'" --quiet
-            lx cmd --run "rsync -avz $USER_PVE@$active_host:\"$tmp_tar\" \"$local_tar\"" --quiet
+            lx cmd --run "rsync -avz $USER_OBSERVER@$ip:\"$tmp_tar\" \"$local_tar\"" --quiet
             
             if (( is_dir )); then
                 mkdir -p "$full_path"
@@ -84,31 +71,24 @@ function extension_start() {
                 tar -xzf "$local_tar" -C "$(dirname "$full_path")"
             fi
             
-            # Clean up the extraction pipeline
-            lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$tmp_tar\"; pct exec $ctid -- rm -f /tmp/vault.tar.gz'; rm -f \"$local_tar\"" --quiet
+            lx cmd --run "ssh $USER_OBSERVER@$ip 'sudo rm -f \"$tmp_tar\"'; rm -f \"$local_tar\"" --quiet
 
-            # Phase 2: Git Vaulting
             output --info "2. Vaulting into Private Git Repo..."
             local private_git="$HOME/.git-dotfiles/private"
-            
-            # We use 'add -f' to punch through any global .gitignore restrictions
             lx cmd --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME add -f '$full_path'" --quiet
-            lx cmd --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME commit -m 'Auto-Vault Original: $file_path (CT $ctid)'" --quiet || true
-            lx cmd --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME push -u origin HEAD" --quiet --no-error-msg || output --error "Git push failed, but file is safely committed locally."
+            lx cmd --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME commit -m 'Auto-Vault Original: $file_path (Observer $node)'" --quiet || true
+            lx cmd --run "/usr/bin/git --git-dir=$private_git --work-tree=$HOME push -u origin HEAD" --quiet --no-error-msg || true
 
             output --ok "Original safely vaulted! Opening editor..."
         else
-            # Path is truly new; generate a blank canvas
             output --info "Creating completely new path..."
             if [[ "$file_path" == */ ]]; then
-                mkdir -p "$full_path" # It's a directory request
+                mkdir -p "$full_path"
             else
                 touch "$full_path"
-                # Convenience: Make scripts immediately executable
                 [[ "$file_path" == *.sh ]] && echo '#!/bin/bash' > "$full_path" && chmod +x "$full_path"
             fi
         fi
-        
         nvim "$full_path"
         
     # ==========================================================================
@@ -117,8 +97,6 @@ function extension_start() {
     elif [[ -n "${ARG_EDIT[0]}" ]]; then
         local file_path="${ARG_EDIT[0]}"
         local target_file="$fs_dir/$file_path"
-        
-        # We use -e to gracefully allow the editing of directories (Netrw in Neovim)
         [[ ! -e "$target_file" ]] && target_file="$PATH_EXTENSION_DATA/$file_path"
         [[ ! -e "$target_file" ]] && { output --error "Path not found: $file_path"; return 1; }
         
@@ -126,12 +104,11 @@ function extension_start() {
         nvim "$target_file"
 
     # ==========================================================================
-    # --- ACTION: DELETE (With Remote Sync Option) ---
+    # --- ACTION: DELETE ---
     # ==========================================================================
     elif [[ -n "${ARG_DELETE[0]}" ]]; then
         local file_path="${ARG_DELETE[0]}"
         local target_file="$fs_dir/$file_path"
-        
         [[ ! -e "$target_file" ]] && target_file="$PATH_EXTENSION_DATA/$file_path"
         [[ ! -e "$target_file" ]] && { output --error "Path not found: $file_path"; return 1; }
         
@@ -139,19 +116,15 @@ function extension_start() {
         (( ARG_REMOTE )) && msg="Permanently delete '$(basename "$target_file")' LOCALLY AND ON SERVER?"
 
         if question "$msg" --default-no; then
-            # Phase 1: Wipe local presence (recursive for folders)
             rm -rf "$target_file"
             rmdir -p "$(dirname "$target_file")" 2>/dev/null || true
             output --ok "Deleted locally."
 
-            # Phase 2: Synchronize wipe to Proxmox
             if (( ARG_REMOTE )) && (( ! is_global )); then
-                # Strip trailing slash to ensure clean rm command
                 local remote_dest="/${file_path#/}"
                 remote_dest="${remote_dest%/}"
-                
                 output --info "Deleting from Server ($remote_dest)..."
-                if lx cmd --run "ssh $USER_PVE@$active_host 'pct exec $ctid -- rm -rf \"$remote_dest\"'" --quiet; then
+                if lx cmd --run "ssh -t $USER_OBSERVER@$ip 'sudo rm -rf \"$remote_dest\"'" --quiet; then
                     output --ok "Deleted on server."
                 else
                     output --error "Failed to delete on server."

@@ -8,8 +8,10 @@
 # ==============================================================================
 
 function extension_start() {
-    source "$(dirname "${BASH_SOURCE[0]}")/../../server_lib.sh"
     
+    # --- 1. Initialization & Environment ---
+    enforce_config_var "USER_PVE"
+
     local active_host=$(get_active_host)
     local ctid="${ARG_CTID[0]}"
 
@@ -18,14 +20,17 @@ function extension_start() {
         return 1
     fi
 
-    # Ensure the command database and tables exist
     init_command_db
 
+    # Extract user inputs
+    local save_alias="${ARG_SAVE[0]}"
+    local delete_alias="${ARG_DELETE[0]}"
+    local run_saved_alias="${ARG_RUN_SAVED[0]}"
     local raw_cmd="${ARG_CMD[0]}"
-    local alias_name="${ARG_ALIAS[0]}"
 
     # ==========================================================================
-    # --- ACTION: DELETE ---
+    # --- Feature: Macro Deletion ---
+    # Safely removes an existing macro from the local database.
     # ==========================================================================
     if (( ARG_DELETE )); then
         if [[ -z "$alias_name" ]]; then
@@ -33,19 +38,20 @@ function extension_start() {
             return 1
         fi
         output --info "Deleting macro '$alias_name' for CT $ctid..."
+        
         local sql="DELETE FROM device_commands WHERE target_type='container' AND target_id='$ctid' AND alias='$alias_name';"
         if lx db --file "commands.db" --exec "$sql" --quiet; then
             output --ok "Deleted successfully."
         else
             output --error "Failed to delete macro."
         fi
-        return 0 # Exit early, delete is a standalone action
+        return 0 # Exit early, delete is an exclusive standalone action
     fi
 
     # ==========================================================================
-    # --- RESOLVE COMMAND ---
-    # If the user wants to RUN but didn't provide a raw command, they MUST 
-    # have provided an alias to load from the DB.
+    # --- Feature: Command Resolution (Memory Fetch) ---
+    # If the user wants to RUN but didn't provide a raw command string, 
+    # they must have provided an alias. We retrieve the command from the DB.
     # ==========================================================================
     local loaded_from_db=0
     if (( ARG_RUN )) && [[ -z "$raw_cmd" ]]; then
@@ -60,12 +66,21 @@ function extension_start() {
             output --error "Saved alias '$alias_name' not found for CT $ctid."
             return 1
         fi
+        
         output --info "Loaded macro: $alias_name"
         loaded_from_db=1
     fi
 
+    # Safety Gate: Ensure we actually have something to execute or save
+    if [[ -z "$raw_cmd" ]]; then
+        output --error "No command provided. Use --cmd <command> or --run-saved <alias>."
+        return 1
+    fi
+
     # ==========================================================================
-    # --- ACTION: SAVE (With Overwrite Protection) ---
+    # --- Feature: Macro Saving & Overwrite Protection ---
+    # Saves the resolved command into the database under the specified alias.
+    # Protects the user from accidentally overwriting an existing, different macro.
     # ==========================================================================
     if (( ARG_SAVE )); then
         if [[ -z "$alias_name" || -z "$raw_cmd" ]]; then
@@ -73,7 +88,7 @@ function extension_start() {
             return 1
         fi
         
-        # Check if alias already exists to warn the user
+        # Check for existing alias to trigger protection
         local existing_cmd
         existing_cmd=$(sqlite3 "$PATH_EXTENSION_DATA/commands.db" "SELECT command FROM device_commands WHERE target_type='container' AND target_id='$ctid' AND alias='$alias_name';" 2>/dev/null)
         
@@ -89,7 +104,7 @@ function extension_start() {
             fi
         fi
 
-        # Proceed with saving
+        # Proceed with writing to the database
         if (( ARG_SAVE )); then
             output --info "Saving command as macro '$alias_name'..."
             local sql="REPLACE INTO device_commands (target_type, target_id, alias, command) VALUES ('container', '$ctid', '$alias_name', '$raw_cmd');"
@@ -101,14 +116,15 @@ function extension_start() {
             fi
         fi
         
-        # If the user only wanted to save, terminate here.
+        # Terminate if the user strictly requested a save without execution
         if (( ! ARG_RUN )); then
             return 0
         fi
     fi
 
     # ==========================================================================
-    # --- EXECUTION ENGINE ---
+    # --- Feature: Remote Execution Engine ---
+    # Dispatches the final, fully-resolved command string to the Proxmox container.
     # ==========================================================================
     if (( ARG_RUN )); then
         if [[ -z "$raw_cmd" ]]; then
@@ -119,13 +135,14 @@ function extension_start() {
         output --section "Executing Command on CT $ctid"
         output --info "$raw_cmd"
         
+        # Build dynamic tag for the central LPEX audit logs
         local tag="cmd"
         (( loaded_from_db )) && tag="cmd,macro"
         (( ARG_SAVE )) && tag="cmd,saved"
         
-        # We omit --quiet so the interactive output of the command (like apt-get progress)
-        # is streamed directly back to the user's terminal.
-        lx cmd --run "ssh root@$active_host 'pct exec $ctid -- bash -c \"$raw_cmd\"'" \
+        # We explicitly omit --quiet so the interactive output of the command 
+        # (like an apt-get installation progress bar) is streamed directly to the terminal.
+        lx cmd --run "ssh $USER_PVE@$active_host 'pct exec $ctid -- bash -c \"$raw_cmd\"'" \
                --log --log-tags "$tag" \
                --no-error-msg
     else
