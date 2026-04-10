@@ -13,6 +13,6 @@ function extension_start() {
 	# Execute the git command.
 	# We pass all arguments collected by the framework (ARGS_EXTENSION_ARRAY)
 	# directly to git, effectively simulating a normal git execution.
-	lx cmd --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME ${ARGS_EXTENSION_ARRAY[*]}"
+	lx cmd --run "/usr/bin/git --git-dir=$public_git --work-tree=$HOME ${ARG_GIT[@]}"
 }
 

@@ -1,0 +1,205 @@
+#!/bin/bash
+
+CMD_PASS_VAULTWARDEN="vaultwarden"
+BW_EMAIL="mycont79-homenetwork@yahoo.com"
+SESSION_FILE="$HOME/.cache/bw-session"
+
+# --- Helper Functions ---
+
+check_cmd() {
+    if ! command -v "$1" &> /dev/null; then
+        echo "Error: $1 is not installed." >&2
+        exit 1
+    fi
+}
+
+unlock_rbw() {
+    if ! rbw unlocked &> /dev/null; then
+        # echo "Unlocking rbw..."
+        export VAULT_PASS=$(pass show "${CMD_PASS_VAULTWARDEN}" | head -n 1)
+        expect <<EOF
+log_user 0
+spawn rbw unlock
+expect "Master Password:"
+send "\$env(VAULT_PASS)\r"
+expect eof
+EOF
+        unset VAULT_PASS
+        rbw sync &> /dev/null
+    fi
+}
+
+unlock_bw_persistent() {
+    if [ -f "$SESSION_FILE" ]; then
+        export BW_SESSION=$(cat "$SESSION_FILE")
+    fi
+
+    if bw status 2>/dev/null | jq -e '.status == "unlocked"' >/dev/null; then
+        return 0
+    fi
+
+    echo "Bitwarden locked. Unlocking..."
+    export VAULT_PASS=$(pass show "${CMD_PASS_VAULTWARDEN}" | head -n 1)
+    NEW_SESSION=$(bw unlock --raw --passwordenv VAULT_PASS 2>/dev/null)
+    
+    if [ -z "$NEW_SESSION" ]; then
+        bw logout &>/dev/null
+        NEW_SESSION=$(bw login "$BW_EMAIL" --passwordenv VAULT_PASS --raw 2>/dev/null)
+    fi
+
+    unset VAULT_PASS
+    
+    if [ -n "$NEW_SESSION" ]; then
+        echo "$NEW_SESSION" > "$SESSION_FILE"
+        chmod 600 "$SESSION_FILE"
+        export BW_SESSION="$NEW_SESSION"
+    else
+        echo "Error: Failed to unlock Bitwarden."
+        exit 1
+    fi
+}
+
+# --- Main Logic ---
+
+check_cmd rbw
+check_cmd pass
+
+MODE="rbw"
+for arg in "$@"; do
+    if [[ "$arg" == "--field" || "$arg" == "-f" || "$arg" == "--add-field" ]]; then
+        MODE="custom"
+        break
+    fi
+done
+
+if [ "$MODE" == "rbw" ]; then
+    unlock_rbw
+    command rbw "$@"
+    exit $?
+fi
+
+# --- Custom Mode (Bitwarden Fields) ---
+
+if [ "$1" != "get" ]; then
+    echo "Error: Custom field operations require 'get'."
+    exit 1
+fi
+
+ITEM_NAME="$2"
+if [ -z "$ITEM_NAME" ]; then
+    echo "Error: Item name is missing."
+    exit 1
+fi
+
+check_cmd bw
+check_cmd jq
+
+unlock_bw_persistent
+
+shift 2
+
+FIELD_NAME=""
+FIELD_VALUE=""
+FIELD_TYPE=0 # 0=Text, 1=Hidden, 2=Boolean
+ACTION=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --field|-f)
+            FIELD_NAME="$2"
+            shift 2
+            if [[ "$1" == "change" || "$1" == "update" ]]; then ACTION="update"; shift;
+            elif [[ "$1" == "remove" || "$1" == "delete" ]]; then ACTION="remove"; shift; fi
+            ;;
+        --add-field)
+            ACTION="add"
+            FIELD_NAME="$2"
+            shift 2
+            ;;
+        --value) FIELD_VALUE="$2"; shift 2 ;;
+        --pass|--hidden) FIELD_TYPE=1; shift ;;
+        --text|--website) FIELD_TYPE=0; shift ;;
+        --bool|--boolean) FIELD_TYPE=2; shift ;;
+        change|update) ACTION="update"; shift ;;
+        remove|delete) ACTION="remove"; shift ;;
+        *) shift ;;
+    esac
+done
+
+if [ -z "$FIELD_NAME" ]; then
+    echo "Error: Field name is required."
+    exit 1
+fi
+if [ -z "$ACTION" ]; then
+    echo "Error: Action is required."
+    exit 1
+fi
+
+# Get Item JSON
+ITEM_JSON=$(bw get item "$ITEM_NAME" 2>/dev/null)
+
+if [ $? -ne 0 ]; then
+    SEARCH_JSON=$(bw list items --search "$ITEM_NAME" 2>/dev/null)
+    SEARCH_JSON=$(echo "$SEARCH_JSON" | jq --arg term "$ITEM_NAME" '[.[] | select(.name | test($term; "i"))]')
+    COUNT=$(echo "$SEARCH_JSON" | jq 'length')
+    
+    if [ "$COUNT" -eq 0 ]; then
+        echo "Error: Item '$ITEM_NAME' not found (by name)."
+        exit 1
+    elif [ "$COUNT" -eq 1 ]; then
+        ITEM_JSON=$(echo "$SEARCH_JSON" | jq '.[0]')
+    else
+        if command -v fzf &> /dev/null; then
+            SELECTION=$(echo "$SEARCH_JSON" | jq -r '.[] | "\(.name) [\(.login.username // "no-user")] (\(.id))"' | fzf --prompt="Select item: ")
+            if [ -n "$SELECTION" ]; then
+                ID=$(echo "$SELECTION" | sed 's/.*(\(.*\))/\1/')
+                ITEM_JSON=$(bw get item "$ID")
+            else
+                exit 1
+            fi
+        else
+            echo "Error: Multiple items found. Install fzf to select."
+            exit 1
+        fi
+    fi
+fi
+
+ITEM_JSON=$(echo "$ITEM_JSON" | jq 'if .fields == null then .fields = [] else . end')
+NEW_JSON=""
+
+case $ACTION in
+    add)
+        if [ -z "$FIELD_VALUE" ]; then
+             if [ "$FIELD_TYPE" -eq 1 ]; then
+                 read -s -p "Enter HIDDEN value for new field '$FIELD_NAME': " FIELD_VALUE
+                 echo ""
+             else
+                 read -p "Enter value for new field '$FIELD_NAME': " FIELD_VALUE
+             fi
+        fi
+        NEW_JSON=$(echo "$ITEM_JSON" | jq --arg name "$FIELD_NAME" --arg value "$FIELD_VALUE" --argjson type "$FIELD_TYPE" '.fields += [{"name": $name, "value": $value, "type": $type}]')
+        ;;
+    update)
+        EXISTS=$(echo "$ITEM_JSON" | jq --arg name "$FIELD_NAME" '[.fields[] | select(.name == $name)] | length')
+        if [ "$EXISTS" -eq 0 ]; then
+            echo "Error: Field '$FIELD_NAME' does not exist."
+            exit 1
+        fi
+        if [ -z "$FIELD_VALUE" ]; then
+             read -p "Enter new value for field '$FIELD_NAME': " FIELD_VALUE
+        fi
+        NEW_JSON=$(echo "$ITEM_JSON" | jq --arg name "$FIELD_NAME" --arg value "$FIELD_VALUE" '(.fields[] | select(.name == $name).value) |= $value')
+        ;;
+    remove)
+        NEW_JSON=$(echo "$ITEM_JSON" | jq --arg name "$FIELD_NAME" 'del(.fields[] | select(.name == $name))')
+        ;;
+esac
+
+if [ -n "$NEW_JSON" ]; then
+    ITEM_ID=$(echo "$ITEM_JSON" | jq -r '.id')
+    echo "$NEW_JSON" | bw encode | bw edit item "$ITEM_ID" > /dev/null
+    echo "Successfully processed item '$ITEM_NAME'."
+else
+    echo "Error: Failed to process JSON."
+    exit 1
+fi

@@ -27,6 +27,13 @@ fnm env --use-on-cd | source
 mcfly init fish | source
 #alias my-testt='linux-mate my-testt'
 
+# lpex is a custom script or tool (not standard).
+# key is an vaultwarden CLI tool in combination with pass and rbw, to easy handling of secrets in the terminal. 
+# For different vaultwarden connections, I use different extensions and need.
+abbr -a key 'RBW_PROFILE=vaultwarden key' 
+
+
+
 # move backward in directory tree
 abbr -a ... '../..'
 abbr -a .... '../../..'
