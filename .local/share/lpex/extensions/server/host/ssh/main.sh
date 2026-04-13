@@ -1,8 +1,17 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server host ssh
-# Description: Instantiates an interactive SSH session to the Proxmox bare-metal host.
+# @meta_module      : server host ssh
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Opens an interactive SSH session to a Proxmox host.
+# @desc_detailed    : Resolves the node's IP from config and connects via SSH.
+# @desc_detailed    : Supports positional node name as fallback to --node flag.
+#
+# @arg_values       : --node | Target Proxmox node (pve101, pve102, pve103)
+#
+# @exit_codes       : 0 | Session ended normally
+# @exit_codes       : 1 | Missing node or IP resolution failure
 # ==============================================================================
 
 function extension_start() {

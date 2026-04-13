@@ -1,9 +1,24 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server container filesystem
-# Description: The central hub for editing and managing local payloads.
-# Implements the 'Smart Vault' to enforce immutable Git backups before overwriting.
+# @meta_module      : server container filesystem
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Manages the local tree-mirror for container filesystem payloads.
+# @desc_detailed    : Implements the Smart Vault: before creating a file locally that
+# @desc_detailed    : already exists in the container, the original is fetched and
+# @desc_detailed    : committed to the private Git repo as an immutable backup.
+#
+# @arg_values       : --ctid     | Target container ID (fzf-selectable)
+# @arg_flags        : --global   | Operate on the shared global container pool
+# @arg_values       : --add      | Create a new local file or fetch an existing one
+# @arg_values       : --edit     | Open an existing local file in the editor
+# @arg_values       : --delete   | Delete a local file or directory
+# @arg_flags        : --remote   | Used with --delete: also delete on the container
+# @arg_flags        : --no-vault | Skip the Smart Vault remote check for known-new files
+#
+# @exit_codes       : 0 | Action completed
+# @exit_codes       : 1 | Missing ctid/scope or path not found
 # ==============================================================================
 
 function extension_start() {
@@ -51,6 +66,20 @@ function extension_start() {
 
         output --info "Preparing: $file_path"
         mkdir -p "$(dirname "$full_path")"
+
+        # [LOGIC] --no-vault skips the remote existence check and vault backup entirely.
+        # Use this when the file is known to be new and the round-trip SSH call is unnecessary.
+        if (( ARG_NO_VAULT )); then
+            output --info "Vault skipped (--no-vault)."
+            if [[ "$file_path" == */ ]]; then
+                mkdir -p "$full_path"
+            else
+                touch "$full_path"
+                [[ "$file_path" == *.sh ]] && echo '#!/bin/bash' > "$full_path" && chmod +x "$full_path"
+            fi
+            nvim "$full_path"
+            return 0
+        fi
 
         # --- Feature: Server Introspection ---
         # Ping the server to see if we are about to overwrite a system file

@@ -1,9 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server container ssh
-# Description: Instantiates an interactive, pseudo-TTY shell session directly 
-# inside an LXC container, bypassing the need for an internal SSH daemon.
+# @meta_module      : server container ssh
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Opens an interactive shell inside a container via pct enter.
+# @desc_detailed    : Connects to the active Proxmox host and attaches directly to the
+# @desc_detailed    : container shell via pct enter. No SSH daemon required inside the
+# @desc_detailed    : container. The -t flag allocates a PTY for correct terminal rendering.
+#
+# @arg_values       : --ctid | Target container ID (fzf-selectable)
+#
+# @exit_codes       : 0 | Session ended normally
+# @exit_codes       : 1 | Missing ctid or SSH connection failure
 # ==============================================================================
 
 function extension_start() {

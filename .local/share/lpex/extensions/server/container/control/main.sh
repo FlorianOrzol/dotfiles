@@ -1,9 +1,20 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server container control
-# Description: Manages the power state (Start, Stop, Restart) of an LXC container 
-# by executing basic 'pct' system commands via SSH on the active host.
+# @meta_module      : server container control
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Manages the power state of an LXC container via pct.
+# @desc_detailed    : Sends start, stop, or restart signals to a container on the
+# @desc_detailed    : active Proxmox host using pct commands over SSH.
+#
+# @arg_values       : --ctid    | Target container ID (fzf-selectable)
+# @arg_flags        : --start   | Power on the container
+# @arg_flags        : --stop    | Gracefully stop the container
+# @arg_flags        : --restart | Reboot the container
+#
+# @exit_codes       : 0 | Signal dispatched successfully
+# @exit_codes       : 1 | Missing ctid or no action specified
 # ==============================================================================
 
 function extension_start() {

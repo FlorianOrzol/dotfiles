@@ -1,9 +1,19 @@
 #!/bin/bash
 # ==============================================================================
-# --- Arguments Definition ---
-# Module: server container filesystem
+# @meta_module      : server container filesystem
+# @meta_file        : arguments.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Declares CLI arguments for 'server container filesystem'.
+#
+# @arg_values       : --ctid       | Target container ID (fzf-selectable)
+# @arg_flags        : --global     | Operate on the shared global container pool
+# @arg_values       : --add        | Path to create locally (Smart Vault check)
+# @arg_values       : --edit       | Path to open in editor (autocomplete from local tree)
+# @arg_values       : --delete     | Path to delete locally
+# @arg_flags        : --remote     | Used with --delete: also remove on the container
+# @arg_flags        : --no-vault   | Skip Smart Vault check for known-new files
 # ==============================================================================
-
 function arguments() {
     
     arg_value @ctid --fzf --description "Target Container ID" --option-cmd "$(get_lxc_completion_cmd)"
@@ -28,9 +38,9 @@ function arguments() {
         list_cmd="find ~/.local/state/lpex/data/server/ -type f -path '*/filesystem/*' 2>/dev/null | awk -F'/filesystem/' '{print \$2}' | sort | uniq"
     fi
 
-    # Action flags
-    arg_value @add    --description "Create a new local file or fetch an existing one from the server"
-    arg_value @edit   --option-cmd "$list_cmd" --description "Edit an existing local file in Neovim"
-    arg_value @delete --option-cmd "$list_cmd" --description "Delete an existing local file or directory"
-    arg_flag  @remote --description "Used with --delete: Synchronously delete the file/folder on the remote container"
+    arg_value @add      --description "Create a new local file or fetch an existing one from the server"
+    arg_value @edit     --option-cmd "$list_cmd" --description "Edit an existing local file in Neovim"
+    arg_value @delete   --option-cmd "$list_cmd" --description "Delete an existing local file or directory"
+    arg_flag  @remote   --description "Used with --delete: Synchronously delete the file/folder on the remote container"
+    arg_flag  @no_vault --description "Skip the Smart Vault remote check (use for known-new files)"
 }

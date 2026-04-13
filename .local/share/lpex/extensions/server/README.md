@@ -1,85 +1,149 @@
 # LPEX Server Extension: Homelab Orchestrator
 
-Diese Extension ist das zentrale Nervensystem zur Steuerung, Überwachung und Orchestrierung deines Homelabs. Sie implementiert eine strikte Trennung zwischen Steuerung (Control Plane) und Ausführung (Data Plane).
+Diese Extension ist das zentrale Nervensystem zur Steuerung, Überwachung und Orchestrierung des Homelabs. Sie implementiert eine strikte Trennung zwischen Steuerung (Control Plane) und Ausführung (Data Plane).
+
+*Stand: April 2026*
+
+---
 
 ## 1. Das Architektur-Paradigma
 
-Das System folgt einer hierarchischen Struktur, um maximale Stabilität und Vorhersehbarkeit zu gewährleisten.
-
 ### 1.1 Die Rollenverteilung
 *   **LPEX Desktop (Der Kommandant):** Hier laufen alle Fäden zusammen. Von hier aus werden Befehle manuell abgesetzt, Skripte entwickelt und per `push` verteilt. Es ist die einzige Instanz mit einer vollständigen Wissensdatenbank über das gesamte Netz.
-*   **Observer / Raspberry Pi (Das autonome Gehirn):** Diese Instanz ist für 24/7 Aufgaben zuständig. Sie überwacht die Hosts, entscheidet über das Power-Management (WOL/Shelly) und triggert automatisierte Events wie Backups.
-*   **Proxmox Hosts (Die Muskeln):** `pve101`, `pve102`, `pve103` führen die eigentliche Arbeit aus. Sie besitzen keine eigene Entscheidungslogik über den Cluster-Zustand, sondern reagieren auf Befehle vom Desktop oder dem Observer.
+*   **Observer / Raspberry Pi (Das autonome Gehirn):** Für 24/7 Aufgaben zuständig. Überwacht Hosts, entscheidet über Power-Management (WOL) und triggert automatisierte Events wie Backups. Zwei Instanzen (pi1 = Primary, pi2 = Standby) bilden ein HA-Paar.
+*   **Proxmox Hosts (Die Muskeln):** `pve101`, `pve102`, `pve103` führen die eigentliche Arbeit aus. Sie besitzen keine eigene Entscheidungslogik, sondern reagieren auf SSH-Befehle vom Desktop oder Observer.
 
 ---
 
 ## 2. Daten- & Log-Architektur (3-Tier System)
 
-Um eine effiziente Analyse zu ermöglichen, werden Daten nach ihrer "Wichtigkeit" und "Lebensdauer" getrennt auf dem zentralen NFS-Pool (`pool_fast`) gespeichert.
+Alle Daten werden nach Wichtigkeit und Lebensdauer getrennt auf dem zentralen NFS-Pool (`pool_fast`) gespeichert.
 
 ### Ebene 1: Status & Metriken (Live-Zustand)
 *   **Pfad:** `/mnt/pool_fast/ServerData/monitoring/state/`
-*   **Inhalt:** Kurzlebige `.json` oder `.txt` Dateien (z.B. `lxc_live.txt`).
-*   **Zweck:** Ermöglicht LPEX am Desktop eine extrem schnelle Autocompletion (z.B. Container-IDs) ohne SSH-Latenz.
+*   **Inhalt:** Kurzlebige `.json`-Dateien (z.B. `pve101_health.json`, `observer_heartbeat.json`).
+*   **Zweck:** Primäre Datenquelle für `host status` und `observer status` — kein SSH nötig, kein Warten.
 
 ### Ebene 2: Das Log-Tagebuch (Management-Ebene)
 *   **Pfad:** `/mnt/pool_fast/ServerData/monitoring/logs/daily/`
-*   **Inhalt:** Strukturierte Text-Logs im Format: `TIMESTAMP : NODE : SCRIPT >>> MESSAGE`.
-*   **Zweck:** Menschlich lesbare Zusammenfassung der Cluster-Aktivitäten (Erfolge/Fehler).
+*   **Inhalt:** `TIMESTAMP : NODE : SCRIPT >>> MESSAGE`
+*   **Zweck:** Menschlich lesbare Zusammenfassung der Cluster-Aktivitäten.
 
 ### Ebene 3: Die Blackbox (Rohdaten-Ebene)
 *   **Pfad:** `/mnt/pool_fast/ServerData/monitoring/outputs/YYYY-MM/`
-*   **Inhalt:** Komplette Terminal-Outputs von Befehlen (z.B. `apt upgrade`).
-*   **Zweck:** Detaillierte Fehleranalyse (Deep-Dive), wenn Ebene 2 einen Fehler meldet.
+*   **Inhalt:** Komplette Terminal-Outputs (z.B. `apt upgrade`, Syncoid-Syncs).
+*   **Zweck:** Detaillierte Fehleranalyse wenn Ebene 2 einen Fehler meldet.
 
 ---
 
 ## 3. Modul-Übersicht
 
-Die Extension ist in drei Hauptbereiche unterteilt, die jeweils über `lpex server <modul>` erreichbar sind.
+Die Extension ist in drei Hauptbereiche unterteilt, erreichbar über `lpex server <modul>`.
 
 ### 3.1 Modul: `host`
+
 Verwaltet die physischen Proxmox-Knoten.
-*   **`status`**: Zeigt Uptime, CPU-Last und anstehende Updates der PVE-Nodes.
-*   **`control`**: Power-Management (Shutdown, Reboot) und Wake-on-LAN Integration.
-*   **`ssh`**: Direkter Tunnel für administrative Aufgaben.
-*   **`push`**: Verteilt Konfigurationen und Skripte vom Desktop auf die Hosts.
+
+| Submodul | Beschreibung |
+|---|---|
+| `status` | Zeigt Health-Status: liest standardmäßig aus der NFS-Ebene-1-Datei (`pve101_health.json`). `--live` erzwingt Live-SSH. `--all` fragt alle drei Nodes in einem Aufruf ab. |
+| `control` | Power-Management: WOL (`--start`), ACPI-Shutdown (`--stop`), Neustart (`--restart`). |
+| `ssh` | Direkter interaktiver SSH-Tunnel. |
+| `cmd` | Ad-hoc Befehle per SSH ausführen (`--run`), als Macro speichern (`--save --alias <name>`) und per Alias aufrufen. `--list` zeigt alle gespeicherten Macros. Befehle werden via Base64 übertragen — Sonderzeichen und Anführungszeichen in Befehlen sind kein Problem. |
+| `push` | Deployt Dateien vom lokalen Tree-Mirror auf den Host. `.sh`-Dateien erhalten automatisch `chmod +x`. |
+| `fetch` | Zieht Dateien oder Verzeichnisse vom Host lokal herunter (Tree-Mirror). |
+| `filesystem` | Smart Vault: Legt neue Dateien lokal an und sichert vorher ggf. die bestehende Remote-Version in den privaten Git-Repo. `--no-vault` überspringt den Remote-Check für bekannt-neue Dateien. |
 
 ### 3.2 Modul: `container`
-Fokussiert auf die Verwaltung der LXC-Container innerhalb des Proxmox-Clusters.
-*   **`cmd`**: Führt Befehle innerhalb eines Containers aus (Struktur: `pct exec`).
-*   **`filesystem`**: Ermöglicht den Zugriff auf Container-Daten und das Synchronisieren von Verzeichnissen.
-*   **`fetch` / `push`**: Datentransfer zwischen Desktop und Container-Dateisystem.
+
+Verwaltet LXC-Container innerhalb des Proxmox-Clusters.
+
+| Submodul | Beschreibung |
+|---|---|
+| `cmd` | Führt Befehle via `pct exec` im Container aus. `--list` zeigt Macros. Befehle werden Base64-kodiert übertragen, um verschachtelte Quoting-Probleme zu vermeiden. |
+| `control` | Start, Stop, Restart eines Containers via `pct`. |
+| `ssh` | Interaktive Shell im Container via `pct enter`. |
+| `push` | Deployt Dateien in den Container via `pct push`. `.sh`-Dateien erhalten automatisch `chmod +x`. |
+| `fetch` | Zieht Dateien aus dem Container via Tar-Pipe (da `pct pull` keine Verzeichnisse unterstützt). |
+| `filesystem` | Smart Vault mit `pct exec`-Introspection. `--no-vault` für neue Dateien. |
 
 ### 3.3 Modul: `observer`
-Steuert die Überwachungs-Einheiten (Raspberry Pis).
-*   **`service`**: Management der Hintergrunddienste (z.B. Health-Checks).
-*   **`logs`**: Aggregiert und visualisiert die Logs der Observer-Einheiten.
-*   **`status`**: Überprüft die Verfügbarkeit und den Zustand des "autonomen Gehirns".
+
+Steuert die Observer-Pis (pi1 und pi2).
+
+| Submodul | Beschreibung |
+|---|---|
+| `status` | Zeigt HA-Zustand: Leader-Rolle, ZFS-Sync-Flag, aktive Timer und Heartbeat-Alter aus NFS. `--all` zeigt pi1 + pi2 nebeneinander. |
+| `control` | Graceful Shutdown (`--stop`) und Reboot (`--restart`) per SSH. Zeigt Bestätigungsfrage bei `--stop`. |
+| `service` | Steuert systemd Units via sudo: `--start`, `--stop`, `--restart`, `--enable`, `--disable`. `--status` zeigt `systemctl status`-Ausgabe. |
+| `logs` | Streamt Journal-Logs eines systemd-Units. `--no-follow` für Snapshot, `--lines <n>` für Anzahl, `--since <time>` für Zeitfilter. |
+| `cmd` | Ad-hoc Befehle per SSH mit `--list`, `--save`, `--run`. Base64-Übertragung. |
+| `push` | Deployt Dateien auf Observer. Multi-Node: `--node pi1 --node pi2`. Pfad-Kürzel: `systemd/name.service` und `scripts/pfad/script.sh`. Node-spezifische Payloads haben Vorrang vor globalem Pool. Systemd Units triggern automatisch `daemon-reload`. `.sh`-Dateien erhalten `chmod +x`. |
+| `fetch` | Zieht Dateien vom Pi via sudo+Tar-Pipe (für System-Pfade). |
+| `filesystem` | Smart Vault mit sudo-Introspection. `--no-vault` für neue Dateien. |
+| `ssh` | Interaktiver SSH-Tunnel. |
 
 ---
 
 ## 4. Globale Helfer & Konfiguration (`extension_global.sh`)
 
-Die `extension_global.sh` fungiert als Shared Library für alle Submodule.
+`extension_global.sh` fungiert als Shared Library für alle Submodule.
 
-*   **Single Source of Truth:** Alle IPs und Pfade werden zentral in `~/.local/state/lpex/data/server/config.conf` verwaltet.
-*   **Validierung:** Die Funktion `enforce_config_var` verhindert Skript-Abbrüche durch fehlende Variablen.
-*   **Dynamische Completion:** `get_lxc_completion_cmd` liest den Live-Cache vom NFS-Pool, damit die Tab-Completion für Container-IDs verzögerungsfrei funktioniert.
-*   **Host-Resolution:** `get_active_host` ermittelt dynamisch den aktuell primären PVE-Server.
+| Funktion | Beschreibung |
+|---|---|
+| `enforce_config_var` | Bricht mit Fehlermeldung ab wenn eine Config-Variable fehlt |
+| `get_active_host` | Gibt `$IP_ACTIVE_PVE` zurück (der aktuell primäre PVE-Server) |
+| `get_observer_ip` | Mappt `pi1` / `pi2` auf die konfigurierte IP (aus `config.conf`) |
+| `get_lxc_completion_cmd` | Liefert den Befehl zum Live-Laden der Container-IDs vom NFS-Cache |
+| `ensure_fs_dir` | Erstellt und gibt den lokalen Tree-Mirror-Pfad zurück (`host/pve101/filesystem`, `global/observer/filesystem` etc.) |
+| `init_command_db` | Erstellt die Macro-Datenbank-Tabelle wenn noch nicht vorhanden |
+
+*   **Single Source of Truth:** Alle IPs, MACs und Pfade in `~/.local/state/lpex/data/server/config.conf`.
 
 ---
 
 ## 5. Zentrale Workflows
 
-### 5.1 Update-Prozess (Sicherheits-First)
-1.  **Check:** `lpex server host status` prüft auf Updates.
-2.  **Snapshot:** Vor jedem Update wird automatisch ein ZFS-Snapshot erstellt.
-3.  **Execution:** Das Update wird durchgeführt, der Output landet in der "Blackbox" (Ebene 3).
-4.  **Log:** Ein Erfolg/Fehler-Eintrag wird im Tagebuch (Ebene 2) vermerkt.
+### 5.1 Typischer Entwicklungs-Zyklus
 
-### 5.2 Backup-Orchestrierung
-Der **Observer** weckt nachts Backup-Hosts (`pve102`/`pve103`) per WOL, triggert die ZFS-Replikation auf `pve101` und schaltet die Backup-Hosts nach erfolgreichem Transfer wieder ab. LPEX am Desktop kann diesen Status jederzeit über das Dashboard visualisieren.
+```
+1. Datei anlegen:   lpex server observer filesystem --node pi1 --add home/fadmin/scripts/observer/myscript.sh
+   → Smart Vault sichert ggf. die bestehende Remote-Version in Git
+   → Öffnet nvim zur Bearbeitung
+
+2. Deployen:        lpex server observer push --node pi1 --node pi2 --local-file scripts/observer/myscript.sh
+   → Shorthand "scripts/" wird zu "home/fadmin/scripts/" expandiert
+   → Deployt auf beide Pis in einem Aufruf
+   → chmod +x automatisch gesetzt
+
+3. Status prüfen:   lpex server observer service --node pi1 --name myscript.service --status
+```
+
+### 5.2 Nacht-Backup-Orchestrierung
+
+Der Observer weckt nachts Backup-Hosts (`pve102`/`pve103`) per WOL, triggert die ZFS-Replikation auf `pve101` und schaltet die Backup-Hosts nach erfolgreichem Transfer wieder ab. Die resultierenden `pveXXX_health.json`-Dateien auf dem NFS-Share werden von `lpex server host status` direkt gelesen.
+
+### 5.3 Schneller Cluster-Überblick
+
+```bash
+lpex server host status --all          # Alle drei PVE-Hosts aus NFS-Cache
+lpex server observer status --all      # pi1 + pi2 HA-Zustand mit Heartbeat-Alter
+```
 
 ---
-*Dokumentation generiert am 31. März 2026 für das LPEX Framework.*
+
+## 6. Pfad-Kürzel für `observer push`
+
+Der häufigste Einsatz von `observer push` sind Systemd-Units und Scripts. Statt des vollen Pfades können Kürzel verwendet werden:
+
+| Eingabe | Expandiert zu |
+|---|---|
+| `systemd/obs-heartbeat.service` | `etc/systemd/system/obs-heartbeat.service` |
+| `scripts/observer/obs-heartbeat.sh` | `home/fadmin/scripts/observer/obs-heartbeat.sh` |
+| `scripts/homelab.conf` | `home/fadmin/scripts/homelab.conf` |
+
+Systemd-Units triggern automatisch `systemctl daemon-reload` nach dem Deploy.
+
+---
+
+*Dokumentation aktualisiert: April 2026.*

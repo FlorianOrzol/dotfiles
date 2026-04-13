@@ -1,8 +1,15 @@
 #!/bin/bash
 # ==============================================================================
-# --- Extension Global Library ---
-# Auto-loaded by LPEX. Contains global helper functions utilized by all 
-# server submodules for database access, host resolution, and payload management.
+# @meta_module      : server (global)
+# @meta_file        : extension_global.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Shared library auto-loaded by LPEX for all server submodules.
+# @desc_detailed    : Provides config validation, IP resolution, filesystem path
+# @desc_detailed    : helpers and the command-database initializer used across all
+# @desc_detailed    : host, container and observer modules.
+#
+# @notes            : Auto-loaded by LPEX — never call this file directly.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -69,11 +76,15 @@ function ensure_fs_dir() {
     local target_type="${1:-global}"
     local target_id="${2}"
     local dir_path="$PATH_EXTENSION_DATA/$target_type"
-    
+
     if [[ "$target_type" != "global" ]]; then
+        # Standard case: scoped by device type and ID (e.g. container/1111, host/pve101, observer/pi1)
         dir_path="$dir_path/$target_id/filesystem"
     else
-        dir_path="$dir_path/container/filesystem"
+        # [LOGIC] For global payloads, target_id specifies the domain (host, observer, container).
+        # This prevents all global dirs from collapsing into a single "global/container" path.
+        # Defaults to "container" to preserve backwards compatibility with callers that omit target_id.
+        dir_path="$dir_path/${target_id:-container}/filesystem"
     fi
     mkdir -p "$dir_path" 2>/dev/null
     echo "$dir_path"

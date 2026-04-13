@@ -1,10 +1,19 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server observer fetch
-# Description: Securely pulls files or entire directories from an Observer node,
-# mirroring the path locally for the 'Tree' architecture.
-# Utilizes a 'Tar-Pipe' for directories to ensure atomic transfers.
+# @meta_module      : server observer fetch
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Pulls files or directories from an Observer Pi into the local tree.
+# @desc_detailed    : Mirrors the remote path structure locally. Uses sudo for system
+# @desc_detailed    : paths (/etc, /lib, ...). Directories are packed via sudo tar and
+# @desc_detailed    : transferred via rsync. Single files are staged via sudo cp.
+#
+# @arg_values       : --node        | Target Observer (pi1 or pi2)
+# @arg_values       : --remote-file | Absolute path on the Observer to fetch
+#
+# @exit_codes       : 0 | Fetch completed, local tree updated
+# @exit_codes       : 1 | Missing arguments or transfer failure
 # ==============================================================================
 
 function extension_start() {

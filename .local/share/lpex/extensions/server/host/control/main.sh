@@ -1,9 +1,20 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server host control
-# Description: Orchestrates the physical power states of the Proxmox bare-metal 
-# servers via Wake-On-LAN and ACPI SSH commands.
+# @meta_module      : server host control
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Manages physical power states of Proxmox nodes.
+# @desc_detailed    : Wake-On-LAN for --start, ACPI shutdown/reboot via SSH for
+# @desc_detailed    : --stop and --restart. Requires 'wol' package for WOL.
+#
+# @arg_values       : --node    | Target Proxmox node (pve101, pve102, pve103)
+# @arg_flags        : --start   | Wake the node via Wake-On-LAN (WOL)
+# @arg_flags        : --stop    | Send ACPI graceful shutdown via SSH
+# @arg_flags        : --restart | Send ACPI reboot via SSH
+#
+# @exit_codes       : 0 | Signal dispatched
+# @exit_codes       : 1 | Missing node, missing 'wol' binary, or IP resolution failure
 # ==============================================================================
 
 function extension_start() {

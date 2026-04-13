@@ -1,10 +1,19 @@
 #!/bin/bash
 # ==============================================================================
-# --- Main Execution ---
-# Module: server container fetch
-# Description: Securely pulls configuration files or entire directories out of 
-# unprivileged containers, mirroring the path locally for the 'Tree' architecture.
-# Utilizes a 'Tar-Pipe' to bypass Proxmox's inability to 'pct pull' directories.
+# @meta_module      : server container fetch
+# @meta_file        : main.sh
+# @meta_date        : 2026-04-11
+#
+# @desc_short       : Pulls files or directories from a container into the local tree.
+# @desc_detailed    : Mirrors the remote path structure locally. For directories, uses
+# @desc_detailed    : a tar-pipe via pct pull since pct pull does not support folders.
+# @desc_detailed    : Single files are pulled directly via pct pull + rsync.
+#
+# @arg_values       : --ctid        | Target container ID (fzf-selectable)
+# @arg_values       : --remote-file | Absolute path on the container to fetch
+#
+# @exit_codes       : 0 | Fetch completed, local tree updated
+# @exit_codes       : 1 | Missing arguments or transfer failure
 # ==============================================================================
 
 function extension_start() {
