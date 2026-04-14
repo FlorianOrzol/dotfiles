@@ -9,10 +9,6 @@
 function extension_start() {
     # 1. Resolve Targets
     local target_files=("${ARG_FILES[@]}")
-    fi
-    
-        return 1
-    fi
     
     local tracker_file="$PATH_EXTENSION_DATA/private_tracked.txt"
     mkdir -p "$PATH_EXTENSION_DATA"
