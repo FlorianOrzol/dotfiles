@@ -132,7 +132,30 @@ lpex server observer status --all      # pi1 + pi2 HA-Zustand mit Heartbeat-Alte
 
 ---
 
-## 6. Pfad-Kürzel für `observer push`
+## 6. Ownership-Garantie bei Tar-Push
+
+Alle drei Push-Module (`host push`, `observer push`, `container push`) erstellen Tarballs mit expliziten Ownership-Flags:
+
+| Modul | Regel | Begründung |
+|---|---|---|
+| `host push` | Immer `--owner=root --group=root` | `USER_PVE` ist root; alle System-Pfade müssen root gehören. sshd, sudo und andere Tools prüfen Ownership und verweigern bei falschen Werten. |
+| `observer push` | `--owner=root --group=root` nur wenn `needs_sudo=1` (Systempfade: `/etc/`, `/root/` etc.) | Fadmin-Pfade (`/home/fadmin/`) werden ohne sudo als fadmin extrahiert — Ownership-Override wäre dort falsch. |
+| `container push` | Immer `--owner=root --group=root` | `pct exec` läuft als root im Container; bei unprivilegierten Containern übernimmt `pct` das UID-Mapping automatisch. |
+
+**Hintergrund:** Ohne diese Flags archiviert `tar` die lokale UID des Entwickler-Rechners (z.B. `1000 = florian`). Nach dem Entpacken auf dem Remote-System gehören Verzeichnisse wie `/`, `/root/`, `/etc/` dem falschen User — sshd verweigert dann Key-Auth (`StrictModes`), und andere privilegierte Tools schlagen fehl.
+
+**Wichtig für den Tree-Mirror:** Verzeichnisse im lokalen Tree-Mirror, die auf dem Remote-System `700`-Permissions haben müssen (insbesondere `root/`), müssen auch lokal `700` gesetzt sein — sonst überschreibt der Push die Remote-Permissions.
+
+```bash
+# Korrekte lokale Permissions für das root/-Verzeichnis im Tree-Mirror
+chmod 700 ~/.local/state/lpex/data/server/global/host/filesystem/root/
+chmod 700 ~/.local/state/lpex/data/server/host/pve101/filesystem/root/
+chmod 700 ~/.local/state/lpex/data/server/global/observer/filesystem/root/
+```
+
+---
+
+## 7. Pfad-Kürzel für `observer push`
 
 Der häufigste Einsatz von `observer push` sind Systemd-Units und Scripts. Statt des vollen Pfades können Kürzel verwendet werden:
 
@@ -146,4 +169,4 @@ Systemd-Units triggern automatisch `systemctl daemon-reload` nach dem Deploy.
 
 ---
 
-*Dokumentation aktualisiert: April 2026.*
+*Dokumentation aktualisiert: 2026-04-13.*

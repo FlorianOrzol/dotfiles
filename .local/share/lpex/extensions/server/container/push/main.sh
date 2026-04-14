@@ -2,7 +2,7 @@
 # ==============================================================================
 # @meta_module      : server container push
 # @meta_file        : main.sh
-# @meta_date        : 2026-04-11
+# @meta_date        : 2026-04-13
 #
 # @desc_short       : Deploys local tree-mirror files into one or more LXC containers.
 # @desc_detailed    : Supports multi-container rollout via --ctid repeated. Resolves
@@ -82,6 +82,9 @@ function extension_start() {
             #   files of the same relative path in the global container pool.
             # ==================================================================
             local abs_file=""
+            # abs_file_base holds the global pool path when container-specific wins but
+            # the global pool also has the same directory — used for the merge below.
+            local abs_file_base=""
             if [[ -n "${ARG_SOURCE_PATH[0]}" ]]; then
                 # Mode A: direct path provided — expand ~ and validate existence
                 abs_file="$(realpath "${ARG_SOURCE_PATH[0]/#\~/$HOME}")"
@@ -93,7 +96,15 @@ function extension_start() {
             elif [[ -e "$specific_dir/$file_path" ]]; then
                 # Mode B, container-specific: found in the per-container tree-mirror
                 abs_file="$(realpath "$specific_dir/$file_path")"
-                output --info "Matched container-specific path."
+                # [LOGIC] For directories: if the global pool also has the same path,
+                # record it as the base layer. It will be pushed first so the
+                # container-specific version overlays it — specific files win on conflict.
+                if [[ -d "$abs_file" && -d "$global_dir/$file_path" ]]; then
+                    abs_file_base="$(realpath "$global_dir/$file_path")"
+                    output --info "Matched container-specific path (global base also present — will merge)."
+                else
+                    output --info "Matched container-specific path."
+                fi
             elif [[ -e "$global_dir/$file_path" ]]; then
                 # Mode B, global fallback: use the shared container pool
                 abs_file="$(realpath "$global_dir/$file_path")"
@@ -108,10 +119,6 @@ function extension_start() {
             fi
 
             output --info "Preparing: $file_path → $remote_dest"
-
-            # Derive a safe basename for tmp staging files on the host
-            local safe_name
-            safe_name=$(basename "${abs_file:-root}")
 
             # ==================================================================
             # --- Feature: Directory Push (Tar-Pipe via pct) ---
@@ -128,64 +135,88 @@ function extension_start() {
             #   Without -C, tar would create a nested subfolder at remote_dest.
             #   With -C, "." captures the contents directly, so extraction into
             #   an existing $remote_dest correctly updates files in place.
+            #
+            # Global/Specific merge for directories:
+            #   If abs_file_base is set, the global pool is pushed first (base layer),
+            #   then the container-specific version is pushed on top (overlay).
+            #   Files with the same relative path in the specific pool win on conflict.
             # ==================================================================
             if [[ -d "$abs_file" ]]; then
                 output --info "Target is a DIRECTORY. Packing contents into tarball..."
 
-                # Use unique tmp filenames to avoid collisions during parallel pushes
-                local local_tar="/tmp/lpex_ct_push_${ctid}_${safe_name}.tar.gz"
-                local host_tar="/tmp/lpex_ct_push_${ctid}_${safe_name}.tar.gz"
-                local ct_tar="/tmp/lpex_ct_push_${ctid}_${safe_name}.tar.gz"
-
-                # Pack the contents of the local directory into the tarball
-                if ! tar -czf "$local_tar" -C "$abs_file" .; then
-                    output --error "Failed to create local tarball."
-                    continue
-                fi
-
-                output --info "-> Staging tarball on Host /tmp..."
-                # Transfer the tarball to the Proxmox host's /tmp via rsync
-                if ! lx cmd --run "rsync -avz '$local_tar' $USER_PVE@$active_host:'$host_tar'" \
-                        --quiet --error-msg "rsync of tarball to host failed"; then
-                    rm -f "$local_tar"
-                    continue
-                fi
-
-                # Local tarball is no longer needed after a successful transfer
-                rm -f "$local_tar"
-
-                output --info "-> Pushing tarball into Container CT $ctid..."
-                # pct push transfers a single file from the host into the container
-                if ! lx cmd --run "ssh $USER_PVE@$active_host 'pct push $ctid \"$host_tar\" \"$ct_tar\"'" \
-                        --quiet --error-msg "pct push of tarball failed"; then
-                    # Clean up the host-side tarball even on failure
-                    lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$host_tar\"'" --quiet
-                    continue
-                fi
-
-                # [LOGIC] Prompt for confirmation before a full root push ("/")
-                # to prevent accidental mass-overwrite inside the container.
+                # [LOGIC] Prompt for confirmation before a full root push ("/") once,
+                # before any layer is transferred, to avoid partial state on abort.
                 if [[ "$remote_dest" == "/" ]]; then
                     output --warn "About to extract the ENTIRE tree-mirror to / in CT $ctid."
                     output --warn "Existing files will be overwritten. Container-only files are NOT deleted."
                     if ! question "Continue with full tree-mirror push to CT $ctid?" --default-no; then
-                        lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$host_tar\"; pct exec $ctid -- rm -f \"$ct_tar\"'" --quiet
                         output --info "Aborted."
                         continue
                     fi
                 fi
 
-                output --info "-> Extracting at $remote_dest inside CT $ctid..."
-                # pct exec runs as root inside the container — no sudo needed.
-                # mkdir -p ensures the destination exists even if it is new.
-                # tar -xzf extracts contents in place — no files are ever deleted.
-                lx cmd --run "ssh $USER_PVE@$active_host \
-                    'pct exec $ctid -- bash -c \"mkdir -p \\\"$remote_dest\\\" && tar -xzf \\\"$ct_tar\\\" -C \\\"$remote_dest\\\" && rm -f \\\"$ct_tar\\\"\"'" \
-                    --quiet --error-msg "Extraction failed in CT $ctid"
+                # Build ordered push list: global base first, container-specific overlay second.
+                local -a dir_push_list=()
+                [[ -n "$abs_file_base" ]] && dir_push_list+=("$abs_file_base")
+                dir_push_list+=("$abs_file")
 
-                # Clean up the host-side tarball (container already cleaned its own copy above)
-                lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$host_tar\"'" --quiet
+                local dir_total=${#dir_push_list[@]}
+                local dir_idx=0
+                local dir_push_failed=0
 
+                for src_dir in "${dir_push_list[@]}"; do
+                    dir_idx=$(( dir_idx + 1 ))
+                    [[ $dir_total -gt 1 ]] && output --info "-> Layer $dir_idx/$dir_total: $(basename "$src_dir")"
+
+                    local safe_name
+                    safe_name=$(basename "${src_dir:-root}")
+
+                    # Use unique tmp names per layer to avoid collisions
+                    local local_tar="/tmp/lpex_ct_push_${ctid}_${safe_name}_${dir_idx}.tar.gz"
+                    local host_tar="/tmp/lpex_ct_push_${ctid}_${safe_name}_${dir_idx}.tar.gz"
+                    local ct_tar="/tmp/lpex_ct_push_${ctid}_${safe_name}_${dir_idx}.tar.gz"
+
+                    # [LOGIC] No --owner flags needed. pct exec runs as root inside the
+                    # container, so cp creates files as root:root regardless of the archived
+                    # UID. Extract to /tmp inside the container first, then cp to destination.
+                    if ! tar -czf "$local_tar" -C "$src_dir" .; then
+                        output --error "Failed to create local tarball (layer $dir_idx)."
+                        dir_push_failed=1
+                        break
+                    fi
+
+                    output --info "-> Staging layer $dir_idx on Host /tmp..."
+                    if ! lx cmd --run "rsync -avz '$local_tar' $USER_PVE@$active_host:'$host_tar'" \
+                            --quiet --error-msg "rsync of tarball to host failed (layer $dir_idx)"; then
+                        rm -f "$local_tar"
+                        dir_push_failed=1
+                        break
+                    fi
+                    rm -f "$local_tar"
+
+                    output --info "-> Pushing layer $dir_idx into Container CT $ctid..."
+                    if ! lx cmd --run "ssh $USER_PVE@$active_host 'pct push $ctid \"$host_tar\" \"$ct_tar\"'" \
+                            --quiet --error-msg "pct push of tarball failed (layer $dir_idx)"; then
+                        lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$host_tar\"'" --quiet
+                        dir_push_failed=1
+                        break
+                    fi
+
+                    output --info "-> Extracting layer $dir_idx at $remote_dest inside CT $ctid..."
+                    # Extract to /tmp inside container, then cp to destination. cp as root → root:root.
+                    local ct_extract="/tmp/lpex_ct_extract_${ctid}_${dir_idx}_${RANDOM}"
+                    if ! lx cmd --run "ssh $USER_PVE@$active_host \
+                            'pct exec $ctid -- bash -c \"mkdir -p \\\"$ct_extract\\\" && tar -xzf \\\"$ct_tar\\\" -C \\\"$ct_extract\\\" && rm -f \\\"$ct_tar\\\" && mkdir -p \\\"$remote_dest\\\" && cd \\\"$ct_extract\\\" && cp -r . \\\"$remote_dest/\\\" && rm -rf \\\"$ct_extract\\\"\"'" \
+                            --quiet --error-msg "Extraction failed in CT $ctid (layer $dir_idx)"; then
+                        lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$host_tar\"'" --quiet
+                        dir_push_failed=1
+                        break
+                    fi
+
+                    lx cmd --run "ssh $USER_PVE@$active_host 'rm -f \"$host_tar\"'" --quiet
+                done
+
+                (( dir_push_failed )) && continue
                 output --ok "Directory deployed: $remote_dest"
 
             # ==================================================================

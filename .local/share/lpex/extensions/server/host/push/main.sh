@@ -2,7 +2,7 @@
 # ==============================================================================
 # @meta_module      : server host push
 # @meta_file        : main.sh
-# @meta_date        : 2026-04-11
+# @meta_date        : 2026-04-13
 #
 # @desc_short       : Deploys local tree-mirror files to one or more Proxmox hosts.
 # @desc_detailed    : Supports multi-node rollout via --node repeated. Resolves
@@ -87,6 +87,9 @@ function extension_start() {
             #   override files of the same relative path in the global pool.
             # ==================================================================
             local abs_file=""
+            # abs_file_base holds the global pool path when node-specific wins but
+            # the global pool also has the same directory — used for the merge below.
+            local abs_file_base=""
             if [[ -n "${ARG_SOURCE_PATH[0]}" ]]; then
                 # Mode A: direct path provided — expand ~ and validate existence
                 abs_file="$(realpath "${ARG_SOURCE_PATH[0]/#\~/$HOME}")"
@@ -98,7 +101,15 @@ function extension_start() {
             elif [[ -e "$specific_dir/$file_path" ]]; then
                 # Mode B, node-specific: found in the per-node tree-mirror
                 abs_file="$(realpath "$specific_dir/$file_path")"
-                output --info "Matched node-specific path."
+                # [LOGIC] For directories: if the global pool also has the same path,
+                # record it as the base layer. It will be pushed first so the
+                # node-specific version overlays it — specific files win on conflict.
+                if [[ -d "$abs_file" && -d "$global_dir/$file_path" ]]; then
+                    abs_file_base="$(realpath "$global_dir/$file_path")"
+                    output --info "Matched node-specific path (global base also present — will merge)."
+                else
+                    output --info "Matched node-specific path."
+                fi
             elif [[ -e "$global_dir/$file_path" ]]; then
                 # Mode B, global fallback: use the shared host pool
                 abs_file="$(realpath "$global_dir/$file_path")"
@@ -129,53 +140,73 @@ function extension_start() {
             #   Without -C, tar would create a nested subfolder inside remote_dest.
             #   With -C, "." refers to the contents directly, so extraction into
             #   an existing $remote_dest correctly updates files in place.
+            #
+            # Global/Specific merge for directories:
+            #   If abs_file_base is set, the global pool is pushed first (base layer),
+            #   then the node-specific version is pushed on top (overlay). Files with
+            #   the same relative path in the specific pool overwrite the global ones.
             # ==================================================================
             if [[ -d "$abs_file" ]]; then
                 output --info "Target is a DIRECTORY. Packing contents into tarball..."
 
-                # Use a unique local tmp filename to avoid collisions during parallel pushes
-                local local_tar="/tmp/lpex_host_push_${node}_$(basename "${abs_file:-root}").tar.gz"
-
-                # Pack the contents of the local directory into the tarball
-                if ! tar -czf "$local_tar" -C "$abs_file" .; then
-                    output --error "Failed to create local tarball."
-                    continue
-                fi
-
-                # Use a matching unique filename on the remote /tmp
-                local remote_tar="/tmp/lpex_host_push_${node}_$(basename "${abs_file:-root}").tar.gz"
-
-                output --info "-> Transferring tarball to $node:/tmp..."
-                # rsync the tarball to the host's /tmp — we connect as USER_PVE (root on Proxmox)
-                if ! lx cmd --run "rsync -avz '$local_tar' $USER_PVE@$ip:'$remote_tar'" \
-                        --quiet --error-msg "rsync of tarball failed"; then
-                    # Clean up the local tarball even on failure to avoid leftover files
-                    rm -f "$local_tar"
-                    continue
-                fi
-
-                # Local tarball is no longer needed after a successful transfer
-                rm -f "$local_tar"
-
-                # [LOGIC] Prompt for confirmation before a full root push ("/")
-                # to prevent accidental mass-overwrite of system files.
+                # [LOGIC] Prompt for confirmation before a full root push ("/") once,
+                # before any layer is transferred, to avoid partial state on abort.
                 if [[ "$remote_dest" == "/" ]]; then
                     output --warn "About to extract the ENTIRE tree-mirror to / on $node."
                     output --warn "Existing files will be overwritten. Remote-only files are NOT deleted."
                     if ! question "Continue with full tree-mirror push to $node?" --default-no; then
-                        lx cmd --run "ssh $USER_PVE@$ip 'rm -f \"$remote_tar\"'" --quiet
                         output --info "Aborted."
                         continue
                     fi
                 fi
 
-                output --info "-> Extracting at $remote_dest on $node..."
-                # On Proxmox hosts USER_PVE is root, so no sudo is needed.
-                # mkdir -p ensures the destination exists even if it is new.
-                # tar -xzf extracts contents in place — no files are ever deleted.
-                lx cmd --run "ssh $USER_PVE@$ip 'mkdir -p \"$remote_dest\" && tar -xzf \"$remote_tar\" -C \"$remote_dest\" && rm -f \"$remote_tar\"'" \
-                       --quiet --error-msg "Extraction failed on $node"
+                # Build ordered push list: global base first, node-specific overlay second.
+                # Mode A and global-only cases produce a single-element list.
+                local -a dir_push_list=()
+                [[ -n "$abs_file_base" ]] && dir_push_list+=("$abs_file_base")
+                dir_push_list+=("$abs_file")
 
+                local dir_total=${#dir_push_list[@]}
+                local dir_idx=0
+                local dir_push_failed=0
+
+                for src_dir in "${dir_push_list[@]}"; do
+                    dir_idx=$(( dir_idx + 1 ))
+                    [[ $dir_total -gt 1 ]] && output --info "-> Layer $dir_idx/$dir_total: $(basename "$src_dir")"
+
+                    # Use a unique tmp name per layer to avoid collisions
+                    local local_tar="/tmp/lpex_host_push_${node}_$(basename "${src_dir:-root}")_${dir_idx}.tar.gz"
+                    local remote_tar="/tmp/lpex_host_push_${node}_$(basename "${src_dir:-root}")_${dir_idx}.tar.gz"
+
+                    # [LOGIC] No --owner flags needed. USER_PVE is root on PVE hosts, so
+                    # cp on the remote runs as root and creates files as root:root regardless
+                    # of what UID was archived locally. Extract to /tmp first, then cp.
+                    if ! tar -czf "$local_tar" -C "$src_dir" .; then
+                        output --error "Failed to create local tarball for layer $dir_idx."
+                        dir_push_failed=1
+                        break
+                    fi
+
+                    output --info "-> Transferring layer $dir_idx to $node:/tmp..."
+                    if ! lx cmd --run "rsync -avz '$local_tar' $USER_PVE@$ip:'$remote_tar'" \
+                            --quiet --error-msg "rsync of tarball failed (layer $dir_idx)"; then
+                        rm -f "$local_tar"
+                        dir_push_failed=1
+                        break
+                    fi
+                    rm -f "$local_tar"
+
+                    output --info "-> Extracting layer $dir_idx at $remote_dest on $node..."
+                    # Extract to /tmp first, then cp to destination. cp as root → root:root.
+                    local remote_extract="/tmp/lpex_host_extract_${node}_${dir_idx}_${RANDOM}"
+                    if ! lx cmd --run "ssh $USER_PVE@$ip 'mkdir -p \"$remote_extract\" && tar -xzf \"$remote_tar\" -C \"$remote_extract\" && rm -f \"$remote_tar\" && mkdir -p \"$remote_dest\" && (cd \"$remote_extract\" && cp -r . \"$remote_dest/\") && rm -rf \"$remote_extract\"'" \
+                           --quiet --error-msg "Extraction failed on $node (layer $dir_idx)"; then
+                        dir_push_failed=1
+                        break
+                    fi
+                done
+
+                (( dir_push_failed )) && continue
                 output --ok "Directory deployed: $remote_dest"
 
             # ==================================================================

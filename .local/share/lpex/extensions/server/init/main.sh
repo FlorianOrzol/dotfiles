@@ -16,8 +16,9 @@
 # @exit_codes       : 0 | All requested nodes initialized successfully
 # @exit_codes       : 1 | Missing config, unknown node, or critical step failed
 #
-# @notes            : Requires ~/.private/priv_data (homelab.conf source).
+# @notes            : Requires ~/.privates/priv_data (homelab.conf source).
 # @notes            : SSH passwords are prompted once by ssh-copy-id if key is missing.
+# @notes            : A pre-init ZFS snapshot is created on PVE hosts before any changes.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -51,19 +52,29 @@ function _push_homelab_conf() {
     local remote_tmp="/tmp/lpex_init_homelab.conf"
 
     output --info "-> Transferring homelab.conf to /tmp..."
-    if ! lx cmd --run "rsync -az '$_INIT_PRIV_CONF' '$user@$ip:$remote_tmp'" \
-            --quiet --error-msg "rsync of homelab.conf failed"; then
+    # [LOGIC] -e forces rsync to use explicit SSH options matching our key check:
+    # StrictHostKeyChecking=accept-new avoids interactive prompts for known hosts.
+    # BatchMode=yes ensures no password prompt is shown if key auth fails.
+    # --quiet is intentionally omitted so rsync errors are always visible.
+    if ! lx cmd --run "rsync -az -e 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes' '$_INIT_PRIV_CONF' $user@$ip:'$remote_tmp'" \
+            --error-msg "rsync of homelab.conf failed"; then
         return 1
     fi
 
-    # [LOGIC] /etc requires root — use sudo mv. The fadmin home dir does not.
+    # [LOGIC] /etc requires elevated privileges on observer nodes (fadmin user → sudo).
+    # On PVE hosts USER_PVE is already root — sudo is not installed and not needed.
+    # We distinguish by user: root = no sudo, anything else = sudo required.
     local mv_cmd
-    if [[ "$remote_dest" == /etc/* ]]; then
+    if [[ "$remote_dest" == /etc/* && "$user" != "root" ]]; then
         mv_cmd="sudo mkdir -p '$(dirname "$remote_dest")' && sudo mv '$remote_tmp' '$remote_dest'"
-        lx cmd --run "ssh -t '$user@$ip' '$mv_cmd'" --quiet --error-msg "Move to $remote_dest failed"
+        if ! lx cmd --run "ssh -t '$user@$ip' '$mv_cmd'" --error-msg "Move to $remote_dest failed"; then
+            return 1
+        fi
     else
         mv_cmd="mkdir -p '$(dirname "$remote_dest")' && mv '$remote_tmp' '$remote_dest'"
-        lx cmd --run "ssh '$user@$ip' '$mv_cmd'" --quiet --error-msg "Move to $remote_dest failed"
+        if ! lx cmd --run "ssh '$user@$ip' '$mv_cmd'" --error-msg "Move to $remote_dest failed"; then
+            return 1
+        fi
     fi
 }
 
@@ -71,14 +82,15 @@ function _push_homelab_conf() {
 # _init_observer <node> <force>
 #   Full initialization sequence for an Observer node (pi1 or pi2).
 #   Steps:
-#     1. SSH key   — skip if already working (unless --force)
+#     1. SSH key      — skip if already working (unless --force)
 #     2. homelab.conf → /home/fadmin/scripts/homelab.conf
 #     3. Full tree-mirror push (scripts + systemd units)
 #     4. State directories (mkdir -p, idempotent)
-#     5. observer_leader flag — only set on pi1, only if not yet present
+#     5. Flag files   — only set if not already present (unless --force)
 #     6. systemd daemon-reload
-#     7. Enable + start all observer timer units
-#     8. Enable obs-startup-check.service for boot
+#     7. Enable + start homelab-nfs-mounts.service
+#     8. Enable + start observer timer units (node-specific sets)
+#     9. Enable obs-startup-check.service for boot
 # ==============================================================================
 function _init_observer() {
     local node="$1"
@@ -90,7 +102,7 @@ function _init_observer() {
     # ------------------------------------------------------------------
     # Step 1: SSH key
     # ------------------------------------------------------------------
-    output --info "[1/7] SSH key check..."
+    output --info "[1/9] SSH key check..."
     if (( force )) || ! _check_ssh_key "$USER_OBSERVER" "$ip"; then
         output --info "-> Running ssh-copy-id for $node (password required once)..."
         # [LOGIC] ssh-copy-id is idempotent — it checks for duplicates before
@@ -103,7 +115,7 @@ function _init_observer() {
     # ------------------------------------------------------------------
     # Step 2: homelab.conf
     # ------------------------------------------------------------------
-    output --info "[2/7] Deploying homelab.conf..."
+    output --info "[2/9] Deploying homelab.conf..."
     _push_homelab_conf "$USER_OBSERVER" "$ip" "/home/fadmin/scripts/homelab.conf" || return 1
     output --ok "homelab.conf deployed."
 
@@ -113,7 +125,7 @@ function _init_observer() {
     # [LOGIC] We push specific directories rather than "." to avoid the
     # interactive confirmation prompt that the "." shorthand triggers.
     # The two directories cover everything: user scripts and systemd units.
-    output --info "[3/7] Deploying scripts and systemd units..."
+    output --info "[3/9] Deploying scripts and systemd units..."
     lx cmd --run "lpex server observer push --node '$node' --local-file 'home/fadmin/scripts'" \
         --error-msg "Failed to deploy scripts to $node"
     lx cmd --run "lpex server observer push --node '$node' --local-file 'etc/systemd/system'" \
@@ -124,10 +136,18 @@ function _init_observer() {
     # ------------------------------------------------------------------
     # [LOGIC] These directories are created at runtime by the observer scripts
     # but may not exist on a fresh Pi. mkdir -p is always safe to re-run.
-    output --info "[4/7] Creating state directories..."
+    output --info "[4/9] Creating state directories and writing node identity..."
     lx cmd --run "ssh '$USER_OBSERVER@$ip' \
         'mkdir -p ~/db/flags ~/db/logs ~/db/network_status/pve101/status ~/db/network_status/pve102/status'" \
         --quiet --error-msg "Failed to create state directories on $node"
+
+    # [LOGIC] Write the logical node name (pi1/pi2) to ~/.node_name.
+    # Observer scripts must NOT rely on $(hostname) — the physical hostname
+    # (e.g. observer1/observer2) differs from the logical LPEX name (pi1/pi2).
+    # This file is the single source of truth for node identity on the Pi.
+    lx cmd --run "ssh '$USER_OBSERVER@$ip' 'echo $node > ~/.node_name'" \
+        --quiet --error-msg "Failed to write node identity on $node"
+    output --ok "Node identity written: $node → ~/.node_name"
 
     # ------------------------------------------------------------------
     # Step 5: Initial flag files (only set if not already present)
@@ -135,7 +155,7 @@ function _init_observer() {
     # [LOGIC] These flags drive runtime decisions — we must not overwrite them
     # if the system is already running, as pi2 might legitimately be the leader.
     # With --force all flags are reset unconditionally (e.g. after hardware swap).
-    output --info "[5/7] Initializing state flags..."
+    output --info "[5/9] Initializing state flags..."
     if [[ "$node" == "pi1" ]]; then
         # observer_leader: pi1 is the default primary — set only if not yet present
         if (( force )); then
@@ -188,12 +208,27 @@ function _init_observer() {
     # ------------------------------------------------------------------
     # Step 6: systemd daemon-reload
     # ------------------------------------------------------------------
-    output --info "[6/7] Reloading systemd daemon..."
+    output --info "[6/9] Reloading systemd daemon..."
     lx cmd --run "ssh -t '$USER_OBSERVER@$ip' 'sudo systemctl daemon-reload'" \
         --quiet --error-msg "daemon-reload failed on $node"
 
     # ------------------------------------------------------------------
-    # Step 7: Enable systemd units — different sets for pi1 vs pi2
+    # Step 7: Enable + start NFS mount service
+    # ------------------------------------------------------------------
+    # [LOGIC] The NFS share must be mounted before any observer job runs —
+    # all scripts write logs and state to DIR_SHARE. We enable the service
+    # here so it also auto-starts on every subsequent reboot.
+    output --info "[7/9] Enabling homelab-nfs-mounts.service..."
+    if (( force )) || ! ssh "$USER_OBSERVER@$ip" "sudo systemctl is-active homelab-nfs-mounts.service" &>/dev/null; then
+        lx cmd --run "ssh -t '$USER_OBSERVER@$ip' 'sudo systemctl enable --now homelab-nfs-mounts.service'" \
+            --quiet --error-msg "Failed to enable homelab-nfs-mounts.service on $node"
+        output --ok "NFS mount service enabled and started."
+    else
+        output --ok "homelab-nfs-mounts.service already active — skipped."
+    fi
+
+    # ------------------------------------------------------------------
+    # Step 8: Enable systemd units — different sets for pi1 vs pi2
     # ------------------------------------------------------------------
     # [LOGIC] The timer layout is asymmetric by design:
     #   pi1 (Primary) : runs all job timers + heartbeat + watchdog
@@ -201,7 +236,7 @@ function _init_observer() {
     #                   activated/deactivated dynamically by obs-promote.sh
     #                   and step_down(). Enabling them here would break HA.
     # obs-startup-check.service is a oneshot boot unit — enabled on both.
-    output --info "[7/7] Enabling systemd units..."
+    output --info "[8/9] Enabling systemd units..."
     if [[ "$node" == "pi1" ]]; then
         local pi1_timers="obs-heartbeat.timer obs-watchdog.timer job-check-standby.timer job-backup-nightly.timer"
         lx cmd --run "ssh -t '$USER_OBSERVER@$ip' 'sudo systemctl enable --now $pi1_timers'" \
@@ -211,6 +246,7 @@ function _init_observer() {
         lx cmd --run "ssh -t '$USER_OBSERVER@$ip' 'sudo systemctl enable --now obs-peer-check.timer'" \
             --quiet --error-msg "Failed to enable obs-peer-check.timer on pi2"
     fi
+    output --info "[9/9] Enabling obs-startup-check.service..."
     lx cmd --run "ssh -t '$USER_OBSERVER@$ip' 'sudo systemctl enable obs-startup-check.service'" \
         --quiet --error-msg "Failed to enable obs-startup-check.service on $node"
 
@@ -222,10 +258,11 @@ function _init_observer() {
 #   Full initialization sequence for a Proxmox host node (pve101, pve102, pve103).
 #   Steps:
 #     1. SSH key   — skip if already working (unless --force)
-#     2. homelab.conf → /etc/homelab.conf
-#     3. Deploy mount-nfs.sh and homelab-nfs-mounts.service
-#     4. daemon-reload
-#     5. Enable + start homelab-nfs-mounts.service (skip if already active)
+#     2. Pre-init ZFS snapshot — rollback point before any changes
+#     3. homelab.conf → /etc/homelab.conf
+#     4. Deploy mount-nfs.sh and homelab-nfs-mounts.service
+#     5. daemon-reload
+#     6. Enable + start homelab-nfs-mounts.service (skip if already active)
 # ==============================================================================
 function _init_host() {
     local node="$1"
@@ -244,7 +281,7 @@ function _init_host() {
     # ------------------------------------------------------------------
     # Step 1: SSH key
     # ------------------------------------------------------------------
-    output --info "[1/5] SSH key check..."
+    output --info "[1/6] SSH key check..."
     if (( force )) || ! _check_ssh_key "$USER_PVE" "$ip"; then
         output --info "-> Running ssh-copy-id for $node (password required once)..."
         ssh-copy-id "$USER_PVE@$ip"
@@ -253,33 +290,52 @@ function _init_host() {
     fi
 
     # ------------------------------------------------------------------
-    # Step 2: homelab.conf → /etc/homelab.conf
+    # Step 2: Pre-init ZFS snapshot
     # ------------------------------------------------------------------
-    output --info "[2/5] Deploying homelab.conf..."
+    # [LOGIC] Take a snapshot of the root filesystem before touching anything.
+    # This gives a clean rollback point in case init causes unexpected side effects.
+    # We detect the root dataset dynamically to avoid hardcoding pool names.
+    # If root is not on ZFS (unusual for PVE but possible), we skip gracefully.
+    output --info "[2/6] Creating pre-init ZFS snapshot on $node..."
+    local snap_suffix="$(date +%Y-%m-%d-%H-%M-%S)-pre-init"
+    lx cmd --run "ssh '$USER_PVE@$ip' '
+        ROOT_DS=\$(findmnt -n -o SOURCE / 2>/dev/null)
+        if [[ \"\$ROOT_DS\" == */* ]]; then
+            zfs snapshot \"\${ROOT_DS}@${snap_suffix}\" && echo \"Snapshot: \${ROOT_DS}@${snap_suffix}\"
+        else
+            echo \"Root is not a ZFS dataset (\$ROOT_DS) — snapshot skipped.\"
+        fi
+    '" --quiet --error-msg "Pre-init snapshot step failed (non-fatal)" || true
+    output --ok "Pre-init snapshot created (or skipped if root is not ZFS)."
+
+    # ------------------------------------------------------------------
+    # Step 3: homelab.conf → /etc/homelab.conf
+    # ------------------------------------------------------------------
+    output --info "[3/6] Deploying homelab.conf..."
     _push_homelab_conf "$USER_PVE" "$ip" "/etc/homelab.conf" || return 1
     output --ok "homelab.conf deployed."
 
     # ------------------------------------------------------------------
-    # Step 3: NFS mount script and service unit
+    # Step 4: NFS mount script and service unit
     # ------------------------------------------------------------------
-    output --info "[3/5] Deploying NFS mount files..."
+    output --info "[4/6] Deploying NFS mount files..."
     lx cmd --run "lpex server host push --node '$node' --local-file 'root/scripts/mount-nfs.sh'" \
         --error-msg "Failed to deploy mount-nfs.sh to $node"
     lx cmd --run "lpex server host push --node '$node' --local-file 'etc/systemd/system/homelab-nfs-mounts.service'" \
         --error-msg "Failed to deploy homelab-nfs-mounts.service to $node"
 
     # ------------------------------------------------------------------
-    # Step 4: systemd daemon-reload
+    # Step 5: systemd daemon-reload
     # ------------------------------------------------------------------
-    output --info "[4/5] Reloading systemd daemon..."
+    output --info "[5/6] Reloading systemd daemon..."
     # [LOGIC] USER_PVE is root on Proxmox — no sudo needed.
     lx cmd --run "ssh '$USER_PVE@$ip' 'systemctl daemon-reload'" \
         --quiet --error-msg "daemon-reload failed on $node"
 
     # ------------------------------------------------------------------
-    # Step 5: Enable NFS mount service (skip if already active)
+    # Step 6: Enable NFS mount service (skip if already active)
     # ------------------------------------------------------------------
-    output --info "[5/5] Enabling homelab-nfs-mounts.service..."
+    output --info "[6/6] Enabling homelab-nfs-mounts.service..."
     if (( force )) || ! ssh "$USER_PVE@$ip" "systemctl is-active homelab-nfs-mounts.service" &>/dev/null; then
         lx cmd --run "ssh '$USER_PVE@$ip' 'systemctl enable --now homelab-nfs-mounts.service'" \
             --quiet --error-msg "Failed to enable homelab-nfs-mounts.service on $node"
@@ -314,19 +370,29 @@ function extension_start() {
     fi
 
     # Dispatch each node to the appropriate initialization function
+    local init_failed=0
     for node in "${target_nodes[@]}"; do
         output --section "Initializing: $node"
 
         case "$node" in
             pi1|pi2)
-                _init_observer "$node" "$force"
+                if ! _init_observer "$node" "$force"; then
+                    output --error "Init FAILED for $node — see errors above."
+                    init_failed=1
+                fi
                 ;;
             pve101|pve102|pve103)
-                _init_host "$node" "$force"
+                if ! _init_host "$node" "$force"; then
+                    output --error "Init FAILED for $node — see errors above."
+                    init_failed=1
+                fi
                 ;;
             *)
                 output --error "Unknown node: '$node'. Supported: pi1, pi2, pve101, pve102, pve103."
+                init_failed=1
                 ;;
         esac
     done
+
+    return $init_failed
 }
