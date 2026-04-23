@@ -1,0 +1,2 @@
+Sende SSH-Befehle an Devices (Hosts, Container, VMs oder Observer).
+Unterstützt die direkte Ausführung sowie das Speichern, Verwalten und Node-Zuweisen von Befehls-Aliasen in der cmds.db.
