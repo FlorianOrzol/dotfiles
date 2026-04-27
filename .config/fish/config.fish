@@ -80,6 +80,8 @@ function lf --description "Sucht mit fd über mehrere Teilstrings"
     set -l search_string (string join '.*' $argv)
 	# Execute the finding command 
     fd -H -p $search_string
+	# save first result to variable
+	set -g result (fd -H -p $search_string | head -n 1) 
 end
 
 # Custom function `ffzf`: Provides an interactive fuzzy finder for files.
