@@ -204,13 +204,17 @@ function _execute_ssh {
     local id="$2"
     local cmd="$3"
     
-    lx output --info "Target : [$type] $id"
-    lx output --info "Command: $cmd"
-    
-    # --------------------------------------------------------------------------
-    # Placeholder: Implement actual SSH, qm guest exec, or pct exec routing here.
-    # Depending on 'type', route the command through the observer or run directly.
-    # --------------------------------------------------------------------------
-    
-    lx output --ok "Execution simulation finished."
+    local name
+    name=$(_device_name "$type" "$id" 2>/dev/null || echo "${type}_${id}")
+
+    INFO "Target : [${type}] ${name}"
+    INFO "Command: ${cmd}"
+
+    # Route the command to the correct device via lib/devices.sh
+    if ! _run_on_device "$type" "$id" "$cmd"; then
+        ERROR "Command failed on [${type}] ${name}."
+        return 1
+    fi
+
+    OK "Command executed on [${type}] ${name}."
 }

@@ -3,6 +3,7 @@
 # @meta_name        : extension_global.sh
 # @desc_short       : Shared helper functions for all homelab submodules.
 #                     Sourced automatically by LPEX before arguments() runs.
+#                     lib/devices.sh is sourced via variables.sh.
 # ==============================================================================
 
 # ==============================================================================

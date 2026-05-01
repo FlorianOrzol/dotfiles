@@ -38,17 +38,9 @@ function arguments {
     arg_flag @stop    --description "Stop the device"
     arg_flag @restart --description "Restart the device"
 
-    # 3. --- HA-Override ---------------
-    # ------ Combinable with actions OR usable standalone.
+    # 3. --- Maintenance / Activate ---------------
+    # ------ Mutually exclusive — combinable with power actions.
 
-    arg_value @mode --description "Activate HA-Override mode" --fzf \
-        --option "maintenance # Wartungsmodus, HA pausiert" \
-        --option "testing # Testmodus, HA pausiert" \
-        --option "disabled # HA dauerhaft deaktiviert (kein Timer)" \
-        --option "safe-restart # Einmaliger Neustart ohne HA-Alarm"
-
-    arg_value @time --description "Duration of the override (e.g. 2h, 30m, 1d) — without --time: manual clear required" \
-        --depends-on "ARG_MODE"
-
-    arg_flag @clear --description "Cancel active HA-Override immediately, restore HA"
+    arg_flag @maintenance --description "Put device into maintenance mode (HA paused, unit-skip flags set)"
+    arg_flag @activate    --description "Remove maintenance mode and restore normal operation"
 }
