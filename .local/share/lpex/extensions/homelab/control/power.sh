@@ -60,7 +60,7 @@ function action_power {
         vm)
             # VM actions via qm on the host that runs the VM
             local host_id
-            host_id=$(host_for_container "$id") || return 1
+            host_id=$(host_for_vm "$id") || return 1
             local qm_action="$action"
             [[ "$action" == "restart" ]] && qm_action="reboot"
             run_on_host "$host_id" "qm ${qm_action} ${id}"

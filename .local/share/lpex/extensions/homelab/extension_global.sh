@@ -7,6 +7,10 @@
 
 _SSH_OPTS=(-o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10)
 
+# Convenience alias — safe here because extension_global.sh is sourced in Phase 4
+# (after PATH_EXTENSION_DATA is set by the LPEX auto-loader).
+PATH_HOMELAB_DATA="${PATH_EXTENSION_DATA}"
+
 # ==============================================================================
 # --- validate_device ---
 # @desc_short   : Ensures exactly one target device is selected.
@@ -180,6 +184,30 @@ function host_for_container {
 }
 
 # ==============================================================================
+# --- host_for_vm ---
+# @desc_short   : Finds the host ID that currently runs a VM.
+#                 Reads from NFS vm-live.txt files.
+# @parameter    : $1 | vmid | VM ID (VMID)
+# ==============================================================================
+function host_for_vm {
+    local vmid="$1"
+
+    local live_file
+    for live_file in "${PATH_SHARE_STATE}/hosts"/*/vm-live.txt; do
+        [[ -f "$live_file" ]] || continue
+        if grep -q "^${vmid} " "$live_file" 2>/dev/null; then
+            local host_name
+            host_name=$(basename "$(dirname "$live_file")")
+            echo "${host_name##*_}"
+            return 0
+        fi
+    done
+
+    ERROR "VM ${vmid} not found in any host live file (NFS may not be mounted)"
+    return 1
+}
+
+# ==============================================================================
 # --- run_on_container ---
 # @desc_short   : Runs a command inside a container via pct exec.
 # @parameter    : $1 | ctid | Container ID (VMID)
@@ -212,7 +240,7 @@ function run_on_device {
         container) run_on_container "$id" "$cmd" ;;
         vm)
             local host_id host_ip obs_id obs_ip
-            host_id=$(host_for_container "$id") || return 1
+            host_id=$(host_for_vm "$id") || return 1
             host_ip=$(device_ip "host" "$host_id") || return 1
             obs_id=$(leader_observer_id)
             obs_ip=$(device_ip "observer" "$obs_id") || return 1

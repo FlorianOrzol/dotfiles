@@ -9,11 +9,9 @@
 # @desc_short       : Registers all arguments for device power control and HA-Override.
 # @usage            : lpex homelab control <device> <id> [actions] [ha-override]
 #
-# @devices          : --host | --container | --vm | --pi
+# @devices          : --host | --container | --vm | --observer
 # @actions          : --start | --stop | --restart
-# @ha-override      : --mode  (maintenance | testing | disabled | safe-restart)
-#                     --time  (only with --mode, e.g. 2h, 30m, 1d)
-#                     --clear (cancel active override)
+# @ha-override      : --maintenance | --activate
 # ==============================================================================
 function arguments {
     # 1. --- Devices ---------------

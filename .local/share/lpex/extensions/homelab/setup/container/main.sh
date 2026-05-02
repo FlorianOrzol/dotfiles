@@ -4,22 +4,20 @@
 # @desc_short       : Router für Container-Setup-Aktionen.
 # ==============================================================================
 
-source "$(dirname "${BASH_SOURCE[0]}")/_create.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/_delete.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/_edit.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/create.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/delete.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/edit.sh"
 
 # ==============================================================================
 # --- function extension_start ---
 # @desc_short       : Validates ID and action, then routes to the correct function.
 # ==============================================================================
 function extension_start {
-    # 1. --- Validate ID ---------------
     if [[ -z "$ARG_ID" ]]; then
         ERROR "No container ID specified."
         return 1
     fi
 
-    # 2. --- Validate Action — exactly one required ---------------
     local action_count=0
     [[ -n "$ARG_CREATE" ]]      && (( action_count++ ))
     [[ -n "$ARG_DELETE" ]]      && (( action_count++ ))
@@ -36,9 +34,8 @@ function extension_start {
         return 1
     fi
 
-    # 3. --- Action Routing ---------------
-    if [[ -n "$ARG_CREATE" ]];      then _action_create;      fi
-    if [[ -n "$ARG_DELETE" ]];      then _action_delete;      fi
-    if [[ -n "$ARG_EDIT" ]];        then _action_edit;        fi
-    if [[ -n "$ARG_SHOW_CONFIG" ]]; then _action_show_config; fi
+    if [[ -n "$ARG_CREATE" ]];      then action_create;      fi
+    if [[ -n "$ARG_DELETE" ]];      then action_delete;      fi
+    if [[ -n "$ARG_EDIT" ]];        then action_edit;        fi
+    if [[ -n "$ARG_SHOW_CONFIG" ]]; then action_show_config; fi
 }

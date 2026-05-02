@@ -1,16 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# @meta_name        : setup/container/_create.sh
-# @desc_short       : Container-Erstellung via pct auf dem Ziel-Host.
-#                     Sourced by setup/container/main.sh.
+# @meta_name        : setup/container/create.sh
+# @desc_short       : Container-Erstellung via pct. Sourced by setup/container/main.sh.
 # ==============================================================================
 
 # ==============================================================================
-# --- _action_create ---
+# --- action_create ---
 # @desc_short   : Creates a new LXC container on the target host via pct.
 # ==============================================================================
-function _action_create {
-    # Validate required options before building the pct command
+function action_create {
     local missing=()
     [[ -z "$ARG_HOST" ]]     && missing+=("--host")
     [[ -z "$ARG_TEMPLATE" ]] && missing+=("--template")
@@ -22,7 +20,6 @@ function _action_create {
         return 1
     fi
 
-    # Build the pct create argument list from all provided options
     local pct_args=()
     pct_args+=( "$ARG_ID" )
     pct_args+=( --hostname  "${ARG_NAME:-ct-$ARG_ID}" )
@@ -33,10 +30,8 @@ function _action_create {
     pct_args+=( --rootfs    "${ARG_STORAGE:-fastpool}:${ARG_DISK}" )
     pct_args+=( --net0      "name=eth0,bridge=${ARG_BRIDGE:-vmbr0}${ARG_IP_ADDRESS:+,ip=$ARG_IP_ADDRESS}${ARG_GATEWAY:+,gw=$ARG_GATEWAY}" )
     pct_args+=( --start     0 )
-
-    # Set privileged/unprivileged mode
     (( ARG_PRIVILEGED )) && pct_args+=( --unprivileged 0 ) || pct_args+=( --unprivileged 1 )
-    [[ -n "$ARG_SSH" ]]       && pct_args+=( --ssh "$ARG_SSH" )
+    [[ -n "$ARG_SSH" ]]       && pct_args+=( --ssh    "$ARG_SSH" )
     [[ -n "$ARG_AUTOSTART" ]] && pct_args+=( --onboot "$([[ $ARG_AUTOSTART == on ]] && echo 1 || echo 0)" )
 
     # Add bind mounts from --multi array
@@ -53,19 +48,16 @@ function _action_create {
     fi
 
     INFO "Creating container ct-${ARG_ID} on host ${ARG_HOST}..."
-    _run_on_host "$ARG_HOST" "pct create ${pct_args[*]}" || return 1
+    run_on_host "$ARG_HOST" "pct create ${pct_args[*]}" || return 1
 
-    # Add to HA manager after successful creation if requested
     if [[ "$ARG_HA" == "yes" ]]; then
         INFO "Adding ct-${ARG_ID} to HA..."
-        _run_on_host "$ARG_HOST" "ha-manager add ct:${ARG_ID}" || true
+        run_on_host "$ARG_HOST" "ha-manager add ct:${ARG_ID}" || true
     fi
 
-    # Assign to a backup job if requested
     if [[ -n "$ARG_AUTO_BACKUP" ]]; then
         INFO "Assigning backup job ${ARG_AUTO_BACKUP} to ct-${ARG_ID}..."
-        _run_on_host "$ARG_HOST" \
-            "pvesh set /cluster/backup/${ARG_AUTO_BACKUP} --vmid ${ARG_ID}" || true
+        run_on_host "$ARG_HOST" "pvesh set /cluster/backup/${ARG_AUTO_BACKUP} --vmid ${ARG_ID}" || true
     fi
 
     OK "Container ct-${ARG_ID} created."

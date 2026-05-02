@@ -44,7 +44,7 @@ function files_push_cmd {
                  rm -rf /tmp/lpex_push_$$'"
             ;;
         vm)
-            host_id=$(host_for_container "$id") || return 1
+            host_id=$(host_for_vm "$id") || return 1
             host_ip=$(device_ip "host" "$host_id") || return 1
             obs_id=$(leader_observer_id)
             obs_ip=$(device_ip "observer" "$obs_id") || return 1
@@ -107,7 +107,7 @@ function action_fetch {
                 | tar -xzf - -C "$local_dir"
             ;;
         vm)
-            host_id=$(host_for_container "$id") || return 1
+            host_id=$(host_for_vm "$id") || return 1
             host_ip=$(device_ip "host" "$host_id") || return 1
             obs_id=$(leader_observer_id)
             obs_ip=$(device_ip "observer" "$obs_id") || return 1

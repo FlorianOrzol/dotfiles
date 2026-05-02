@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : variables.sh
-# @desc_short       : Loads config.conf (= homelab.conf) for all submodules.
-#                     Sourced automatically by LPEX before arguments() and
-#                     extension_start() for every homelab submodule.
+# @desc_short       : Sourced in Phase 3 (path traversal). PATH_EXTENSION_DATA is
+#                     not yet available here — config.conf is loaded by LPEX in
+#                     Phase 4. PATH_HOMELAB_DATA is set in extension_global.sh.
 # ==============================================================================
 
 # Load homelab.conf — defines all IPs, paths, SSH users, and helper functions
@@ -13,5 +13,4 @@ if [[ -f "$_CONFIG_FILE" ]]; then
     source "$_CONFIG_FILE"
 fi
 
-# Convenience alias for the extension data directory
-PATH_HOMELAB_DATA="${PATH_EXTENSION_DATA}"
+# PATH_HOMELAB_DATA is set in extension_global.sh (Phase 4, after PATH_EXTENSION_DATA is available)

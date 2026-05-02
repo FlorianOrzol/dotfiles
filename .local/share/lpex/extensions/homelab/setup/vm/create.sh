@@ -1,16 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# @meta_name        : setup/vm/_create.sh
-# @desc_short       : VM-Erstellung via qm auf dem Ziel-Host.
-#                     Sourced by setup/vm/main.sh.
+# @meta_name        : setup/vm/create.sh
+# @desc_short       : VM-Erstellung via qm. Sourced by setup/vm/main.sh.
 # ==============================================================================
 
 # ==============================================================================
-# --- _action_create ---
+# --- action_create ---
 # @desc_short   : Creates a new VM on the target host via qm.
 # ==============================================================================
-function _action_create {
-    # Validate required options before building the qm command
+function action_create {
     local missing=()
     [[ -z "$ARG_HOST" ]] && missing+=("--host")
     [[ -z "$ARG_ISO" ]]  && missing+=("--iso")
@@ -22,7 +20,6 @@ function _action_create {
         return 1
     fi
 
-    # Build the qm create argument list
     local qm_args=()
     qm_args+=( "$ARG_ID" )
     qm_args+=( --name     "${ARG_NAME:-vm-$ARG_ID}" )
@@ -40,29 +37,25 @@ function _action_create {
 
     INFO "Creating VM ${ARG_ID} on host ${ARG_HOST}..."
 
-    # Create the VM, then attach the disk separately (qm disk add syntax)
-    _run_on_host "$ARG_HOST" \
+    # Create the VM, then attach the disk separately
+    run_on_host "$ARG_HOST" \
         "qm create ${qm_args[*]} && \
          qm set ${ARG_ID} --scsi0 ${ARG_STORAGE:-fastpool}:${ARG_DISK}" || return 1
 
-    # Apply cloud-init network config if an IP was provided
     if [[ -n "$ARG_IP_ADDRESS" ]]; then
         INFO "Setting cloud-init network: ip=${ARG_IP_ADDRESS}${ARG_GATEWAY:+,gw=$ARG_GATEWAY}..."
-        _run_on_host "$ARG_HOST" \
+        run_on_host "$ARG_HOST" \
             "qm set ${ARG_ID} --ipconfig0 ip=${ARG_IP_ADDRESS}${ARG_GATEWAY:+,gw=$ARG_GATEWAY}" || true
     fi
 
-    # Add to HA manager after successful creation if requested
     if [[ "$ARG_HA" == "yes" ]]; then
         INFO "Adding vm-${ARG_ID} to HA..."
-        _run_on_host "$ARG_HOST" "ha-manager add vm:${ARG_ID}" || true
+        run_on_host "$ARG_HOST" "ha-manager add vm:${ARG_ID}" || true
     fi
 
-    # Assign to a backup job if requested
     if [[ -n "$ARG_AUTO_BACKUP" ]]; then
         INFO "Assigning backup job ${ARG_AUTO_BACKUP} to vm-${ARG_ID}..."
-        _run_on_host "$ARG_HOST" \
-            "pvesh set /cluster/backup/${ARG_AUTO_BACKUP} --vmid ${ARG_ID}" || true
+        run_on_host "$ARG_HOST" "pvesh set /cluster/backup/${ARG_AUTO_BACKUP} --vmid ${ARG_ID}" || true
     fi
 
     OK "VM vm-${ARG_ID} created."
