@@ -4,7 +4,7 @@
 # @desc_short       : Entry point for the update submodule — validates and routes.
 # ==============================================================================
 
-source "$(dirname "${BASH_SOURCE[0]}")/_run.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/run.sh"
 
 # ==============================================================================
 # --- extension_start ---
@@ -18,7 +18,7 @@ function extension_start {
     # Determine whether a single device or a bulk flag was provided
     local has_device=0 has_bulk=0
 
-    _validate_device 2>/dev/null && has_device=1
+    validate_device 2>/dev/null && has_device=1
 
     [[ -n "$ARG_ALL" || -n "$ARG_ALL_OBSERVERS" || \
        -n "$ARG_ALL_HOSTS" || -n "$ARG_ALL_CLIENTS" ]] && has_bulk=1
@@ -36,7 +36,7 @@ function extension_start {
 
     # --- Single device --------------------------------------------------------
     if (( has_device )); then
-        _update_device "$_DEVICE_TYPE" "$_DEVICE_ID" "$dry_run" "$patches"
+        update_device "$_DEVICE_TYPE" "$_DEVICE_ID" "$dry_run" "$patches"
         return $?
     fi
 
@@ -45,27 +45,21 @@ function extension_start {
 
     # --all: observers first, then hosts (sequentially to avoid split-brain risk)
     if [[ -n "$ARG_ALL" ]]; then
-        _update_all_observers "$dry_run" "$patches" || any_error=1
-        _update_all_hosts     "$dry_run" "$patches" || any_error=1
+        update_all_observers "$dry_run" "$patches" || any_error=1
+        update_all_hosts     "$dry_run" "$patches" || any_error=1
         (( any_error )) && return 1
         return 0
     fi
 
-    # --all-observers
     if [[ -n "$ARG_ALL_OBSERVERS" ]]; then
-        _update_all_observers "$dry_run" "$patches"
-        return $?
+        update_all_observers "$dry_run" "$patches"; return $?
     fi
 
-    # --all-hosts
     if [[ -n "$ARG_ALL_HOSTS" ]]; then
-        _update_all_hosts "$dry_run" "$patches"
-        return $?
+        update_all_hosts "$dry_run" "$patches"; return $?
     fi
 
-    # --all-clients
     if [[ -n "$ARG_ALL_CLIENTS" ]]; then
-        _update_all_clients "$dry_run" "$patches"
-        return $?
+        update_all_clients "$dry_run" "$patches"; return $?
     fi
 }

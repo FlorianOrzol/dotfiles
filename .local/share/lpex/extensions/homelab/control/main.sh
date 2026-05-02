@@ -4,15 +4,15 @@
 # @desc_short       : Validates and routes power and HA-override actions.
 # ==============================================================================
 
-source "$(dirname "${BASH_SOURCE[0]}")/_power.sh"
-source "$(dirname "${BASH_SOURCE[0]}")/_ha_override.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/power.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/ha_override.sh"
 
 # ==============================================================================
 # --- extension_start ---
 # @desc_short   : Entry point — validates device + action, then dispatches.
 # ==============================================================================
 function extension_start {
-    _validate_device || return 1
+    validate_device || return 1
     local type="$_DEVICE_TYPE" id="$_DEVICE_ID"
 
     # Count power actions — only one allowed at a time
@@ -44,10 +44,10 @@ function extension_start {
 
     # Apply HA override first if requested, then execute power action
     if (( ha_active )); then
-        _action_ha_override "$type" "$id" || return 1
+        action_ha_override "$type" "$id" || return 1
     fi
 
-    if [[ -n "$ARG_START" ]];   then _action_power "$type" "$id" "start";   fi
-    if [[ -n "$ARG_STOP" ]];    then _action_power "$type" "$id" "stop";    fi
-    if [[ -n "$ARG_RESTART" ]]; then _action_power "$type" "$id" "restart"; fi
+    if [[ -n "$ARG_START" ]];   then action_power "$type" "$id" "start";   fi
+    if [[ -n "$ARG_STOP" ]];    then action_power "$type" "$id" "stop";    fi
+    if [[ -n "$ARG_RESTART" ]]; then action_power "$type" "$id" "restart"; fi
 }
