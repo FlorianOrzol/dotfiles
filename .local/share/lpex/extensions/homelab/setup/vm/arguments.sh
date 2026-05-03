@@ -37,8 +37,7 @@ function arguments {
     arg_value @host --description "Target host (ID from homelab_conf.db)" --fzf \
         --option-cmd "lx db --file 'homelab_conf.db' --table 'hosts' --select --cols 'id,name' --sep ' # ' 2>/dev/null"
 
-    arg_value @iso --description "Boot ISO" --fzf \
-        --option-cmd "# Placeholder: fetch available ISOs from target host"
+    arg_value @iso --description "Boot-ISO (Dateiname auf dem Ziel-Host)"
 
     arg_value @ram     --description "RAM in MB (required)"
     arg_value @cpu     --description "Number of vCPUs (Default: 2)"
@@ -81,6 +80,5 @@ function arguments {
         --option "yes # Zur HA-Liste hinzufügen" \
         --option "no  # Kein HA"
 
-    arg_value @auto_backup --description "Assign backup job (ID from host)" --fzf \
-        --option-cmd "# Placeholder: fetch available backup jobs from target host via pvesh"
+    arg_value @auto_backup --description "Backup-Job-ID des Hosts zuweisen"
 }

@@ -83,7 +83,7 @@ function ssh_vm {
 
     local -a _r=()
     lx db --file "homelab_conf.db" --table "vms" --select @_r \
-        --cols "ip" --where "id='${vmid}'" --limit 1 2>/dev/null
+        --cols "ip" --where "id=${vmid}" --limit 1 2>/dev/null
     local vm_ip="${_r[0]:-}"
 
     if [[ -z "$vm_ip" ]]; then

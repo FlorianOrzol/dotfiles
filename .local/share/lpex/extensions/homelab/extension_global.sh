@@ -53,7 +53,7 @@ function device_ip {
         if [[ -n "$table" ]]; then
             local -a _db_result=()
             lx db --file "homelab_conf.db" --table "$table" --select @_db_result \
-                --cols "ip" --where "id='${id}'" --limit 1 2>/dev/null
+                --cols "ip" --where "id=${id}" --limit 1 2>/dev/null
             if [[ -n "${_db_result[0]:-}" ]]; then
                 echo "${_db_result[0]}"
                 return 0
@@ -96,7 +96,7 @@ function device_name {
         if [[ -n "$table" ]]; then
             local -a _r=()
             lx db --file "homelab_conf.db" --table "$table" --select @_r \
-                --cols "name" --where "id='${id}'" --limit 1 2>/dev/null
+                --cols "name" --where "id=${id}" --limit 1 2>/dev/null
             [[ -n "${_r[0]:-}" ]] && echo "${_r[0]}" && return 0
         fi
     fi
@@ -246,7 +246,7 @@ function run_on_device {
             obs_ip=$(device_ip "observer" "$obs_id") || return 1
             local -a _vm_ip_r=()
             lx db --file "homelab_conf.db" --table "vms" --select @_vm_ip_r \
-                --cols "ip" --where "id='${id}'" --limit 1 2>/dev/null
+                --cols "ip" --where "id=${id}" --limit 1 2>/dev/null
             local vm_ip="${_vm_ip_r[0]:-}"
             if [[ -n "$vm_ip" ]]; then
                 ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${obs_ip}" \

@@ -37,6 +37,11 @@ function arguments {
     arg_value @push --description "Push local file/directory to device" --fzf \
         --option-cmd "find '$PATH_EXTENSION_DATA/mirror' -type f 2>/dev/null"
 
-    arg_value @delete --description "Delete file/directory on device AND in local mirror" --fzf \
+    arg_value @delete --description "Delete file/directory on device AND in local mirror" --fzf --multi \
         --option-cmd "find '$PATH_EXTENSION_DATA/mirror' -type f 2>/dev/null"
+
+    arg_value @rename --description "File to rename (local mirror path)" --fzf \
+        --option-cmd "find '$PATH_EXTENSION_DATA/mirror' -type f 2>/dev/null"
+
+    arg_value @rename_to --description "New filename (basename only)" --depends-on "ARG_RENAME"
 }

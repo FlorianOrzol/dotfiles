@@ -17,8 +17,8 @@ function extension_start {
     local device_id="$_DEVICE_ID"
 
     # 2. --- Validate Action Selection ---------------
-    if [[ -z "$ARG_GOTO" && -z "$ARG_FETCH" && -z "$ARG_PUSH" && -z "$ARG_DELETE" ]]; then
-        ERROR "No action specified. Provide --goto, --fetch, --push, or --delete."
+    if [[ -z "$ARG_GOTO" && -z "$ARG_FETCH" && -z "$ARG_PUSH" && -z "$ARG_DELETE" && -z "$ARG_RENAME" ]]; then
+        ERROR "No action specified. Provide --goto, --fetch, --push, --delete, or --rename."
         return 1
     fi
 
@@ -33,6 +33,7 @@ function extension_start {
     if [[ -n "$ARG_FETCH" ]];  then action_fetch  "$device_type" "$device_id" "$mirror_path";   fi
     if [[ -n "$ARG_PUSH" ]];   then action_push   "$device_type" "$device_id" "$mirror_path";   fi
     if [[ -n "$ARG_DELETE" ]]; then action_delete "$device_type" "$device_id" "$mirror_path";   fi
+    if [[ -n "$ARG_RENAME" ]]; then action_rename "$device_type" "$device_id" "$mirror_path";   fi
 }
 
 # ==============================================================================

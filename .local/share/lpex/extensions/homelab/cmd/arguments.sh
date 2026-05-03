@@ -58,11 +58,11 @@ function arguments {
     
     # Options for --cmd
     arg_flag @run --description "Execute command directly" --depends-on "ARG_CMD"
-    arg_value @save --description "Save command with an alias in cmds.db" --depends-on "ARG_CMD" --ask
-    
+    arg_value @save --description "Save command with an alias in cmds.db" --depends-on "ARG_CMD"
+
     # Options for --save
-    arg_value @desc --description "Optional description for the saved command" --depends-on "ARG_SAVE" --fzf
-    arg_value @devices --description "Allow command for specific devices (e.g., 'host_1,vm_1111' or 'all')" --depends-on "ARG_SAVE" --multi --ask \
+    arg_value @desc --description "Optional description for the saved command" --depends-on "ARG_SAVE"
+    arg_value @devices --description "Allow command for specific devices (e.g., 'host_1,vm_1111' or 'all')" --depends-on "ARG_SAVE" --multi \
         --option-cmd "lx db --file 'homelab_conf.db' --table 'hosts' --select --cols 'id,name' --sep ' # '; lx db --file 'homelab_conf.db' --table 'observers' --select --cols 'id,name' --sep ' # '; cat '$FILE_CONTAINER_LIVE' 2>/dev/null; cat '$FILE_VM_LIVE' 2>/dev/null"
     
     # Options for --edit

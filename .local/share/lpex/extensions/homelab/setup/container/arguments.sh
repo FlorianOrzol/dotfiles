@@ -29,6 +29,10 @@ function arguments {
     arg_flag @edit        --description "Edit container configuration"
     arg_flag @show_config --description "Show current container configuration"
 
+    arg_value @conf_push --description "Container in conf_targets des Hosts ein-/austragen (on|off)" --fzf \
+        --option "on  # In conf_targets aufnehmen (homelab.conf wird gepusht)" \
+        --option "off # Aus conf_targets entfernen (homelab.conf wird gepusht)"
+
     # 3. --- Options ---------------
     # ------ Used with --create and --edit. Validated in main.sh.
 
@@ -38,7 +42,9 @@ function arguments {
         --option-cmd "lx db --file 'homelab_conf.db' --table 'hosts' --select --cols 'id,name' --sep ' # ' 2>/dev/null"
 
     arg_value @template --description "LXC template (e.g. debian-12, ubuntu-22.04)" --fzf \
-        --option-cmd "# Placeholder: fetch available templates from target host"
+        --option "debian-12" \
+        --option "ubuntu-22.04" \
+        --option "ubuntu-24.04"
 
     arg_value @ram      --description "RAM in MB (required)"
     arg_value @swap     --description "Swap in MB (Default: = RAM)"
@@ -50,7 +56,7 @@ function arguments {
         --option "fastpool # Schneller ZFS-Pool" \
         --option "bigpool  # Großer ZFS-Pool"
 
-    arg_value @binds --description "Bind mount: /host/path:/ct/path (repeatable)" --multi --ask \
+    arg_value @binds --description "Bind mount: /host/path:/ct/path (repeatable)" --multi \
         --option "/zfs-pool-fast/data # Fast Pool" \
         --option "/zfs-pool-big/data  # Big Pool"
 
@@ -66,7 +72,7 @@ function arguments {
         --option "root # SSH aktiv + Root-Login erlaubt (PermitRootLogin yes)" \
         --option "off  # SSH deaktiviert"
 
-    arg_value @features --description "LXC feature to enable (repeatable)" --multi --ask \
+    arg_value @features --description "LXC feature to enable (repeatable)" --multi \
         --option "nesting # Docker-in-LXC u.ä." \
         --option "keyctl  # Keyring-Zugriff" \
         --option "fuse    # FUSE-Mounts"
@@ -79,6 +85,5 @@ function arguments {
         --option "yes # Zur HA-Liste hinzufügen" \
         --option "no  # Kein HA"
 
-    arg_value @auto_backup --description "Assign backup job (ID from host)" --fzf \
-        --option-cmd "# Placeholder: fetch available backup jobs from target host via pvesh"
+    arg_value @auto_backup --description "Backup-Job-ID des Hosts zuweisen"
 }

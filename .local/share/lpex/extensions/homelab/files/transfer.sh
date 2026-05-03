@@ -50,7 +50,7 @@ function files_push_cmd {
             obs_ip=$(device_ip "observer" "$obs_id") || return 1
             local -a _vm_ip_r=()
             lx db --file "homelab_conf.db" --table "vms" --select @_vm_ip_r \
-                --cols "ip" --where "id='${id}'" --limit 1 2>/dev/null
+                --cols "ip" --where "id=${id}" --limit 1 2>/dev/null
             local vm_ip="${_vm_ip_r[0]:-}"
             if [[ -z "$vm_ip" ]]; then
                 ERROR "No IP found for VM $id in homelab_conf.db — cannot push files."
@@ -113,7 +113,7 @@ function action_fetch {
             obs_ip=$(device_ip "observer" "$obs_id") || return 1
             local -a _vm_ip_r=()
             lx db --file "homelab_conf.db" --table "vms" --select @_vm_ip_r \
-                --cols "ip" --where "id='${id}'" --limit 1 2>/dev/null
+                --cols "ip" --where "id=${id}" --limit 1 2>/dev/null
             local vm_ip="${_vm_ip_r[0]:-}"
             if [[ -z "$vm_ip" ]]; then
                 ERROR "No IP found for VM $id in homelab_conf.db — cannot fetch files."
@@ -173,24 +173,73 @@ function action_push {
 
 # ==============================================================================
 # --- action_delete ---
-# @desc_short   : Deletes a file/directory on the device AND in the local mirror.
+# @desc_short   : Deletes one or more files on the device AND in the local mirror.
+#                 Supports --multi for selecting multiple files.
 # @parameter    : $1 | type        | Device type
 # @parameter    : $2 | id          | Device ID
 # @parameter    : $3 | mirror_path | Local mirror base path for the device
 # ==============================================================================
 function action_delete {
     local type="$1" id="$2" mirror_path="$3"
-    local local_path="$ARG_DELETE"
-    local remote_path="${local_path#"$mirror_path"}"
+    local any_error=0
 
-    INFO "Deleting [${remote_path}] on [${type}] ${id} and in local mirror..."
+    # ARG_DELETE is an array when --multi is used
+    local -a local_paths=("${ARG_DELETE[@]}")
 
-    if ! run_on_device "$type" "$id" "rm -rf ${remote_path@Q}"; then
-        ERROR "Remote delete failed — local mirror NOT removed."
+    for local_path in "${local_paths[@]}"; do
+        local remote_path="${local_path#"$mirror_path"}"
+
+        INFO "Deleting [${remote_path}] on [${type}] ${id} and in local mirror..."
+
+        if ! run_on_device "$type" "$id" "rm -rf ${remote_path@Q}"; then
+            ERROR "Remote delete failed for [${remote_path}] — local mirror NOT removed."
+            any_error=1
+            continue
+        fi
+
+        rm -rf "$local_path"
+        OK "Deleted [${remote_path}] on device and [${local_path}] in mirror."
+    done
+
+    (( any_error )) && return 1
+    return 0
+}
+
+# ==============================================================================
+# --- action_rename ---
+# @desc_short   : Renames a file on the device AND in the local mirror.
+# @parameter    : $1 | type        | Device type
+# @parameter    : $2 | id          | Device ID
+# @parameter    : $3 | mirror_path | Local mirror base path for the device
+# ==============================================================================
+function action_rename {
+    local type="$1" id="$2" mirror_path="$3"
+    local local_path="$ARG_RENAME"
+    local new_name="$ARG_RENAME_TO"
+
+    if [[ ! -e "$local_path" ]]; then
+        ERROR "Local path not found: $local_path"
         return 1
     fi
 
-    # Remove from local mirror only after successful remote delete
-    rm -rf "$local_path"
-    OK "Deleted [${remote_path}] on device and [${local_path}] in mirror."
+    if [[ -z "$new_name" ]]; then
+        ERROR "New name not provided. Use --rename-to <new_name>."
+        return 1
+    fi
+
+    local remote_path="${local_path#"$mirror_path"}"
+    local remote_dir
+    remote_dir="$(dirname "$remote_path")"
+    local new_remote_path="${remote_dir}/${new_name}"
+    local local_new="${mirror_path}${new_remote_path}"
+
+    INFO "Renaming [${remote_path}] → [${new_remote_path}] on [${type}] ${id}..."
+
+    if ! run_on_device "$type" "$id" "mv ${remote_path@Q} ${new_remote_path@Q}"; then
+        ERROR "Remote rename failed — local mirror NOT renamed."
+        return 1
+    fi
+
+    mv "$local_path" "$local_new"
+    OK "Renamed [$(basename "$remote_path")] → [${new_name}] on device and in mirror."
 }
