@@ -1,33 +1,28 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : config/remove/main.sh
-# @desc_short       : Konfigurationseintrag aus homelab_conf.db löschen.
+# @desc_short       : Delete a key-value entry from homelab_conf.db.
 # ==============================================================================
-source "$(dirname "${BASH_SOURCE[0]}")/../_helpers.sh"
+source "${PATH_EXTENSION_SOURCE}/${NAME_EXTENSION}/config/extension_global.sh"
 
 function extension_start {
-    _config_init_db
+    _config_init_db   # ensure settings table exists before any read or write
 
+    # Key argument is mandatory for delete
     if [[ -z "${ARG_KEY:-}" ]]; then
-        ERROR "Schlüssel (--key) ist erforderlich."
+        ERROR "--key is required."
         return 1
     fi
 
+    # Refuse to delete a key that does not exist in the DB
     if ! _config_key_exists "$ARG_KEY"; then
-        ERROR "Schlüssel '${ARG_KEY}' nicht in DB."
+        ERROR "Key '${ARG_KEY}' not found in DB."
         return 1
     fi
 
-    _config_parse_key "$ARG_KEY"
+    # Ask for confirmation before permanently deleting — default is no
+    question "Really delete '${ARG_KEY}'?" --default-no || return 0
 
-    # Warnung: bei strukturierten Keys wird die ganze Zeile gelöscht
-    if (( _CKEY_IS_STRUCT == 1 )); then
-        WARN "Strukturierter Eintrag: Löscht den kompletten DB-Eintrag in '${_CKEY_TABLE}' (id=${_CKEY_ID})."
-        WARN "Alle Felder dieses Eintrags (IP, Name, MAC) werden entfernt."
-    fi
-
-    question "Eintrag '${ARG_KEY}' wirklich löschen?" --default-no || return 0
-
-    _config_delete_key "$ARG_KEY"
-    OK "Eintrag '${ARG_KEY}' gelöscht."
+    _config_delete_key "$ARG_KEY"   # delete key from settings table
+    OK "Entry '${ARG_KEY}' deleted."
 }

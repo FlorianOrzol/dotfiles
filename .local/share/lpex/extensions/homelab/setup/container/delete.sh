@@ -10,6 +10,7 @@
 # ==============================================================================
 function action_delete {
     local host_id
+    # Find which host currently runs this container via NFS live files
     host_id=$(host_for_container "$ARG_ID") || return 1
 
     WARN "This will permanently delete container ct-${ARG_ID} on host ${host_id}."

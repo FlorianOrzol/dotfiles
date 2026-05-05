@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : config/_generate.sh
-# @desc_short       : homelab.conf aus homelab_conf.db generieren und deployen.
+# @desc_short       : Generate homelab.conf from homelab_conf.db and deploy it.
 #                     Sourced by config/push/main.sh.
 # ==============================================================================
 
@@ -9,14 +9,15 @@
 # --- read_setting ---
 # @desc_short   : Reads a single value from the settings table.
 # @parameter    : $1 | key     | Settings key
-# @parameter    : $2 | default | Default value if key not found
+# @parameter    : $2 | default | Default value if key not found (optional)
 # ==============================================================================
 function read_setting {
     local key="$1" default="${2:-}"
-    local -a result=()
+    local esc_key="${key//\'/\'\'}"   # escape single quotes for SQL
+    local result                      # scalar — receives single-row output directly
     lx db --file "homelab_conf.db" --table "settings" --select @result \
-        --cols "value" --where "key='${key}'" --limit 1 2>/dev/null
-    echo "${result[0]:-$default}"
+        --cols "value" --where "key='${esc_key}'" --limit 1 2>/dev/null
+    echo "${result:-$default}"        # return found value or the provided default
 }
 
 # ==============================================================================
@@ -28,113 +29,117 @@ function action_generate {
     local out_conf="${PATH_HOMELAB_DATA}/config.conf"
     local out_mirror="${PATH_HOMELAB_DATA}/mirror/observer/observer_1/opt/homelab/homelab.conf"
 
-    INFO "Lese Daten aus homelab_conf.db..."
+    INFO "Reading data from homelab_conf.db..."
 
-    # --- Read settings ---
+    # 1. --- Read scalar settings ---
     local mount_fast mount_big
-    local ip_sharedata id_sharedata path_sharedata_fast path_sharedata_big
-    local timeout_hb threshold_peer
-    local ssh_user_obs ssh_user_host routing_obs terminal
+    local id_sharedata ip_sharedata path_sharedata_fast path_sharedata_big
+    local timeout_hb threshold_peer ssh_user_obs ssh_user_host routing_obs terminal
 
-    mount_fast=$(read_setting "MOUNT_POOL_FAST" "/mnt/pool_fast/data")
-    mount_big=$(read_setting  "MOUNT_POOL_BIG"  "/mnt/pool_big/data")
-    id_sharedata=$(read_setting     "ID_CLIENT_SHAREDATA"    "1111")
-    ip_sharedata=$(read_setting     "IP_SHAREDATA"           "10.0.200.1")
-    path_sharedata_fast=$(read_setting "PATH_SHAREDATA_POOL_FAST" "/zfs-pool-fast/data")
-    path_sharedata_big=$(read_setting  "PATH_SHAREDATA_POOL_BIG"  "/zfs-pool-big/data")
-    timeout_hb=$(read_setting      "TIMEOUT_HEARTBEAT_MAX" "300")
-    threshold_peer=$(read_setting  "THRESHOLD_PEER_FAIL"   "2")
-    ssh_user_obs=$(read_setting    "SSH_USER_OBSERVER"     "fadmin")
-    ssh_user_host=$(read_setting   "SSH_USER_HOST"         "root")
-    routing_obs=$(read_setting     "_ROUTING_OBSERVER_ID"  "1")
-    terminal=$(read_setting        "TERMINAL"              "kitty")
+    # Read each scalar setting with a sensible fallback default
+    mount_fast=$(read_setting           "MOUNT_POOL_FAST"           "/mnt/pool_fast/data")
+    mount_big=$(read_setting            "MOUNT_POOL_BIG"            "/mnt/pool_big/data")
+    id_sharedata=$(read_setting         "ID_CLIENT_SHAREDATA"       "1111")
+    ip_sharedata=$(read_setting         "IP_SHAREDATA"              "10.0.200.1")
+    path_sharedata_fast=$(read_setting  "PATH_SHAREDATA_POOL_FAST"  "/zfs-pool-fast/data")
+    path_sharedata_big=$(read_setting   "PATH_SHAREDATA_POOL_BIG"   "/zfs-pool-big/data")
+    timeout_hb=$(read_setting           "TIMEOUT_HEARTBEAT_MAX"     "300")
+    threshold_peer=$(read_setting       "THRESHOLD_PEER_FAIL"       "2")
+    ssh_user_obs=$(read_setting         "SSH_USER_OBSERVER"         "fadmin")
+    ssh_user_host=$(read_setting        "SSH_USER_HOST"             "root")
+    routing_obs=$(read_setting          "_ROUTING_OBSERVER_ID"      "1")
+    terminal=$(read_setting             "TERMINAL"                  "kitty")
 
-    # --- Read hosts ---
-    local -a host_rows=()
-    lx db --file "homelab_conf.db" --table "hosts" --select @host_rows \
-        --cols "id,name,ip,mac" --sort "id ASC" --sep "|" 2>/dev/null
+    # 2. --- Discover hosts by scanning for IP_HOST_* keys ---
+    local -a host_key_rows=()
+    # Fetch all IP_HOST_X keys sorted by key to get hosts in stable order
+    lx db --file "homelab_conf.db" --table "settings" --select @host_key_rows \
+        --cols "key" --where "key LIKE 'IP_HOST_%'" --sort "key ASC" 2>/dev/null
 
-    # --- Read observers ---
-    local -a obs_rows=()
-    lx db --file "homelab_conf.db" --table "observers" --select @obs_rows \
-        --cols "id,name,ip" --sort "id ASC" --sep "|" 2>/dev/null
+    # 3. --- Discover observers by scanning for IP_OBSERVER_* keys ---
+    local -a obs_key_rows=()
+    # Fetch all IP_OBSERVER_X keys sorted by key
+    lx db --file "homelab_conf.db" --table "settings" --select @obs_key_rows \
+        --cols "key" --where "key LIKE 'IP_OBSERVER_%'" --sort "key ASC" 2>/dev/null
 
-    # --- Read ZFS pools ---
-    local -a pool_rows=()
-    lx db --file "homelab_conf.db" --table "zfs_pools" --select @pool_rows \
-        --cols "dataset" --sort "id ASC" 2>/dev/null
+    # 4. --- Discover ZFS pools by scanning for ZFS_POOL_* keys ---
+    local -a pool_vals=()
+    # Fetch dataset values only (key ordering already gives correct pool order)
+    lx db --file "homelab_conf.db" --table "settings" --select @pool_vals \
+        --cols "value" --where "key LIKE 'ZFS_POOL_%'" --sort "key ASC" 2>/dev/null
 
-    # --- Read conf_targets per host ---
-    local -a ct_rows=()
-    lx db --file "homelab_conf.db" --table "conf_targets" --select @ct_rows \
-        --cols "host_id,container_id" --sort "host_id ASC" --sep "|" 2>/dev/null
+    # 5. --- Discover conf_target arrays per host ---
+    local -a ct_keys=()
+    # Fetch key names only — values are looked up per key via read_setting below
+    lx db --file "homelab_conf.db" --table "settings" --select @ct_keys \
+        --cols "key" --where "key LIKE 'CONF_TARGETS_HOST_%'" --sort "key ASC" 2>/dev/null
 
-    # --- Validate minimum data ---
-    if (( ${#host_rows[@]} == 0 && ${#obs_rows[@]} == 0 )); then
-        ERROR "homelab_conf.db enthält keine Hosts und keine Observer. Zuerst Daten eintragen."
+    # Validate minimum data — refuse to write an empty config
+    if (( ${#host_key_rows[@]} == 0 && ${#obs_key_rows[@]} == 0 )); then
+        ERROR "homelab_conf.db contains no hosts and no observers. Add entries first."
         return 1
     fi
 
-    INFO "Generiere homelab.conf..."
+    INFO "Generating homelab.conf..."
 
     # --- Build host section ---
-    local hosts_section=""
-    local first_host_name="" first_obs_name="" last_obs_name=""
-    for row in "${host_rows[@]}"; do
-        IFS="|" read -r h_id h_name h_ip h_mac <<< "$row"
-        [[ -z "$h_id" ]] && continue
+    local hosts_section="" first_host_name=""
+    for key in "${host_key_rows[@]}"; do
+        local h_id="${key#IP_HOST_}"   # extract numeric ID suffix (e.g. "IP_HOST_1" → "1")
+        local h_name h_ip h_mac
+        h_name=$(read_setting "DEVICENAME_HOST_${h_id}" "host_${h_id}")
+        h_ip=$(read_setting   "IP_HOST_${h_id}"         "")
+        h_mac=$(read_setting  "MAC_HOST_${h_id}"        "")
         hosts_section+="DEVICENAME_HOST_${h_id}=\"${h_name}\"\n"
         hosts_section+="IP_HOST_${h_id}=\"${h_ip}\"\n"
         hosts_section+="MAC_HOST_${h_id}=\"${h_mac}\"\n\n"
-        [[ -z "$first_host_name" ]] && first_host_name="$h_name"
+        [[ -z "$first_host_name" ]] && first_host_name="$h_name"  # first host drives live-file paths
     done
 
     # --- Build observer section ---
-    local obs_section=""
-    for row in "${obs_rows[@]}"; do
-        IFS="|" read -r o_id o_name o_ip <<< "$row"
-        [[ -z "$o_id" ]] && continue
+    local obs_section="" first_obs_name="" last_obs_name=""
+    for key in "${obs_key_rows[@]}"; do
+        local o_id="${key#IP_OBSERVER_}"   # extract numeric ID suffix
+        local o_name o_ip
+        o_name=$(read_setting "DEVICENAME_OBSERVER_${o_id}" "observer_${o_id}")
+        o_ip=$(read_setting   "IP_OBSERVER_${o_id}"         "")
         obs_section+="DEVICENAME_OBSERVER_${o_id}=\"${o_name}\"\n"
         obs_section+="IP_OBSERVER_${o_id}=\"${o_ip}\"\n\n"
-        [[ -z "$first_obs_name" ]] && first_obs_name="$o_name"
-        last_obs_name="$o_name"
+        [[ -z "$first_obs_name" ]] && first_obs_name="$o_name"  # first = primary
+        last_obs_name="$o_name"                                   # last  = standby
     done
 
     # --- Build ZFS pools array ---
     local pools_section="ZFS_POOLS=(\n"
-    for dataset in "${pool_rows[@]}"; do
-        [[ -z "$dataset" ]] && continue
+    for dataset in "${pool_vals[@]}"; do
+        [[ -z "$dataset" ]] && continue             # skip empty entries
         pools_section+="    \"${dataset}\"\n"
     done
     pools_section+=")"
 
-    # --- Build CONF_TARGETS_HOST_X arrays grouped by host_id ---
+    # --- Build CONF_TARGETS_HOST_X arrays ---
     local conf_targets_section=""
-    declare -A _ct_map
-    for row in "${ct_rows[@]}"; do
-        IFS="|" read -r ct_host_id ct_ctid <<< "$row"
-        [[ -z "$ct_host_id" || -z "$ct_ctid" ]] && continue
-        _ct_map["$ct_host_id"]+=" ${ct_ctid}"
-    done
-    for h_id in $(echo "${!_ct_map[@]}" | tr ' ' '\n' | sort -n); do
-        read -ra _ctids <<< "${_ct_map[$h_id]}"
+    for ct_key in "${ct_keys[@]}"; do
+        local h_id="${ct_key#CONF_TARGETS_HOST_}"   # extract numeric host id suffix
+        local ct_val
+        ct_val=$(read_setting "CONF_TARGETS_HOST_${h_id}")  # look up space-separated id list
+        [[ -z "$ct_val" ]] && continue              # skip hosts with empty target list
         conf_targets_section+="CONF_TARGETS_HOST_${h_id}=("
-        for ctid in "${_ctids[@]}"; do
-            conf_targets_section+=" \"${ctid}\""
+        for ctid in $ct_val; do
+            conf_targets_section+=" \"${ctid}\""   # append each container id as quoted element
         done
         conf_targets_section+=" )\n"
     done
-    unset _ct_map
 
-    # --- Build HA timers for first observer (static list) ---
+    # --- HA timers static list ---
     local ha_timers="HA_OBSERVER_TIMERS=(\"obs-heartbeat.timer\" \"obs-ha-clients-watch.timer\" \"job-backup-nightly.timer\")"
 
-    # --- Build FILE_CONTAINER_LIVE / FILE_VM_LIVE pointing to first host ---
+    # Fall back to host_1 if no hosts are in the DB yet
     local first_host_name_for_live="${first_host_name:-host_1}"
 
     # --- Write file ---
-    mkdir -p "$(dirname "$out_conf")"
-    mkdir -p "$(dirname "$out_mirror")"
+    mkdir -p "$(dirname "$out_conf")"    # ensure config directory exists
+    mkdir -p "$(dirname "$out_mirror")"  # ensure mirror directory exists
 
     cat > "$out_conf" << HOMELAB_CONF
 # ==============================================================================
@@ -249,29 +254,30 @@ FILE_VM_LIVE="\${PATH_SHARE_STATE}/hosts/${first_host_name_for_live}/vm-live.txt
 TERMINAL="${terminal}"
 HOMELAB_CONF
 
-    # Mirror-Kopie synchron halten
+    # Keep the observer_1 mirror in sync with the newly written config file
     cp "$out_conf" "$out_mirror"
 
-    OK "homelab.conf generiert: ${out_conf}"
-    OK "Mirror aktualisiert:    ${out_mirror}"
+    OK "homelab.conf generated: ${out_conf}"
+    OK "Mirror updated:         ${out_mirror}"
 }
 
 # ==============================================================================
 # --- action_deploy ---
-# @desc_short   : Pushes the generated homelab.conf to observer_1.
+# @desc_short   : Pushes the generated homelab.conf to the leader observer.
 # ==============================================================================
 function action_deploy {
     local obs_id
-    obs_id=$(leader_observer_id)
+    obs_id=$(leader_observer_id)   # determine current leader observer id
     local obs_ip
-    obs_ip=$(device_ip "observer" "$obs_id") || return 1
+    obs_ip=$(device_ip "observer" "$obs_id") || return 1   # resolve IP, abort if not found
 
-    INFO "Pushe homelab.conf auf observer_${obs_id} (${obs_ip})..."
+    INFO "Pushing homelab.conf to observer_${obs_id} (${obs_ip})..."
 
     local mirror_conf="${PATH_HOMELAB_DATA}/mirror/observer/observer_1/opt/homelab/homelab.conf"
+    # Push mirror file to the observer via rsync over SSH
     rsync -az --rsh="ssh ${_SSH_OPTS[*]}" \
         "$mirror_conf" \
         "${SSH_USER_OBSERVER}@${obs_ip}:/opt/homelab/homelab.conf" || return 1
 
-    OK "homelab.conf auf observer_${obs_id} deployed — observer verteilt automatisch weiter."
+    OK "homelab.conf deployed to observer_${obs_id} — observer distributes it automatically."
 }

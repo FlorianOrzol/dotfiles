@@ -1,16 +1,22 @@
 #!/bin/bash
-# @meta_name : config/remove/arguments.sh
+# ==============================================================================
+# @meta_name        : config/remove/arguments.sh
+# @desc_short       : CLI arguments for removing a config key.
+# ==============================================================================
+
+# --- function arguments ---
+# @desc_short   : Registers CLI arguments for config remove.
+# @usage        : lpex homelab config remove <key>
+#
+# @direct       : <key> | Existing config key to remove (FZF from DB)
+# ==============================================================================
 function arguments {
-    local _db="${PATH_EXTENSION_DATA}/homelab_conf.db"
-    local _q="SELECT 'IP_HOST_'||id||' # '||ip              FROM hosts"
-        _q+=" UNION ALL SELECT 'DEVICENAME_HOST_'||id||' # '||name  FROM hosts"
-        _q+=" UNION ALL SELECT 'MAC_HOST_'||id||' # '||mac          FROM hosts"
-        _q+=" UNION ALL SELECT 'IP_OBSERVER_'||id||' # '||ip        FROM observers"
-        _q+=" UNION ALL SELECT 'DEVICENAME_OBSERVER_'||id||' # '||name FROM observers"
-        _q+=" UNION ALL SELECT 'ZFS_POOL_'||id||' # '||dataset      FROM zfs_pools"
-        _q+=" UNION ALL SELECT key||' # '||value                    FROM settings"
-        _q+=" ORDER BY 1"
+    local keys  # all entries for FZF
+
+    # Load all keys as "KEY # value" multiline string — scalar receives full output directly
+    lx db --file "homelab_conf.db" --table "settings" --select @keys \
+        --cols "key,value" --sep " # " --sort "key ASC" 2>/dev/null
 
     arg_direct @key --description "Config key to remove" --fzf \
-        --option-cmd "sqlite3 '${_db}' \"${_q}\" 2>/dev/null"
+        --option-cmd "echo '${keys}'"
 }

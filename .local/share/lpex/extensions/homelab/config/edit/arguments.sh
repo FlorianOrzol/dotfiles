@@ -1,22 +1,29 @@
 #!/bin/bash
-# @meta_name : config/edit/arguments.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../_helpers.sh"
+# ==============================================================================
+# @meta_name        : config/edit/arguments.sh
+# @desc_short       : CLI arguments for editing an existing config key.
+# ==============================================================================
 
+# --- function arguments ---
+# @desc_short   : Registers CLI arguments for config edit.
+# @usage        : lpex homelab config edit <key> --new-value <value>
+#
+# @direct       : <key>        Existing config key (FZF from DB)
+# @options      : --new-value  Replacement value; description shows current value
+# ==============================================================================
 function arguments {
-    local _db="${PATH_EXTENSION_DATA}/homelab_conf.db"
-    local _q="SELECT 'IP_HOST_'||id||' # '||ip              FROM hosts"
-        _q+=" UNION ALL SELECT 'DEVICENAME_HOST_'||id||' # '||name  FROM hosts"
-        _q+=" UNION ALL SELECT 'MAC_HOST_'||id||' # '||mac          FROM hosts"
-        _q+=" UNION ALL SELECT 'IP_OBSERVER_'||id||' # '||ip        FROM observers"
-        _q+=" UNION ALL SELECT 'DEVICENAME_OBSERVER_'||id||' # '||name FROM observers"
-        _q+=" UNION ALL SELECT 'ZFS_POOL_'||id||' # '||dataset      FROM zfs_pools"
-        _q+=" UNION ALL SELECT key||' # '||value                    FROM settings"
-        _q+=" ORDER BY 1"
+    local keys value  # keys: all entries for FZF; value: current value of selected key
+
+    # Load all keys as "KEY # value" multiline string — scalar receives full output directly
+    lx db --file "homelab_conf.db" --table "settings" --select @keys \
+        --cols "key,value" --sep " # " --sort "key ASC" 2>/dev/null
 
     arg_direct @key --description "Config key to edit" --fzf \
-        --option-cmd "sqlite3 '${_db}' \"${_q}\" 2>/dev/null"
+        --option-cmd "echo '${keys}'"
 
-    arg_value @new_value \
-        --description "New value (old: $(_config_get_current_value "${ARG_KEY:-}"))" \
-        --depends-on "ARG_KEY"
+    # Look up current value for the already-entered key via ARGS_ENTERED
+    lx db --file "homelab_conf.db" --table "settings" --select @value \
+        --cols "value" --where "key='${ARGS_ENTERED[0]}'" --limit 1 2>/dev/null
+
+    arg_value @new_value --description "New value (old: ${value})"
 }

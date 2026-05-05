@@ -10,6 +10,7 @@
 # ==============================================================================
 function action_delete {
     local host_id
+    # Find which host currently runs this VM via NFS live files
     host_id=$(host_for_vm "$ARG_ID") || return 1
 
     WARN "This will permanently delete VM vm-${ARG_ID} on host ${host_id}."

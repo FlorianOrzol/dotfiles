@@ -11,6 +11,7 @@ _SSH_OPTS=(-o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10)
 # (after PATH_EXTENSION_DATA is set by the LPEX auto-loader).
 PATH_HOMELAB_DATA="${PATH_EXTENSION_DATA}"
 
+
 # ==============================================================================
 # --- validate_device ---
 # @desc_short   : Ensures exactly one target device is selected.
@@ -43,25 +44,7 @@ function validate_device {
 function device_ip {
     local type="$1" id="$2"
 
-    # Try homelab_conf.db if it exists
-    if [[ -f "${PATH_HOMELAB_DATA}/homelab_conf.db" ]]; then
-        local table
-        case "$type" in
-            host)     table="hosts" ;;
-            observer) table="observers" ;;
-        esac
-        if [[ -n "$table" ]]; then
-            local -a _db_result=()
-            lx db --file "homelab_conf.db" --table "$table" --select @_db_result \
-                --cols "ip" --where "id=${id}" --limit 1 2>/dev/null
-            if [[ -n "${_db_result[0]:-}" ]]; then
-                echo "${_db_result[0]}"
-                return 0
-            fi
-        fi
-    fi
-
-    # Fall back to config.conf variables (IP_HOST_1, IP_OBSERVER_2, etc.)
+    # Build the flat settings key for this device (e.g. IP_HOST_1, IP_OBSERVER_2)
     local varname
     case "$type" in
         host)     varname="IP_HOST_${id}" ;;
@@ -69,9 +52,22 @@ function device_ip {
         *) ERROR "Unknown device type for IP lookup: $type"; return 1 ;;
     esac
 
+    # Try the flat settings table first if the DB exists
+    if [[ -f "${PATH_HOMELAB_DATA}/homelab_conf.db" ]]; then
+        local esc_key="${varname//\'/\'\'}"   # escape key for SQL
+        local -a _db_result=()
+        lx db --file "homelab_conf.db" --table "settings" --select @_db_result \
+            --cols "value" --where "key='${esc_key}'" --limit 1 2>/dev/null
+        if [[ -n "${_db_result[0]:-}" ]]; then
+            echo "${_db_result[0]}"
+            return 0
+        fi
+    fi
+
+    # Fall back to config.conf variables (IP_HOST_1, IP_OBSERVER_2, etc.)
     local ip="${!varname:-}"
     if [[ -z "$ip" ]]; then
-        ERROR "No IP found for ${type} ${id} — set IP_${type^^}_${id} in config.conf or add to homelab_conf.db"
+        ERROR "No IP found for ${type} ${id} — set ${varname} in config.conf or homelab_conf.db"
         return 1
     fi
     echo "$ip"
@@ -86,19 +82,21 @@ function device_ip {
 function device_name {
     local type="$1" id="$2"
 
-    # Try DB first
+    # Build the flat settings key for this device name (e.g. DEVICENAME_HOST_1)
+    local varname
+    case "$type" in
+        host)     varname="DEVICENAME_HOST_${id}" ;;
+        observer) varname="DEVICENAME_OBSERVER_${id}" ;;
+        *)        echo "${type}_${id}"; return 0 ;;   # unknown type: fall back to convention
+    esac
+
+    # Try the flat settings table first if the DB exists
     if [[ -f "${PATH_HOMELAB_DATA}/homelab_conf.db" ]]; then
-        local table
-        case "$type" in
-            host)     table="hosts" ;;
-            observer) table="observers" ;;
-        esac
-        if [[ -n "$table" ]]; then
-            local -a _r=()
-            lx db --file "homelab_conf.db" --table "$table" --select @_r \
-                --cols "name" --where "id=${id}" --limit 1 2>/dev/null
-            [[ -n "${_r[0]:-}" ]] && echo "${_r[0]}" && return 0
-        fi
+        local esc_key="${varname//\'/\'\'}"   # escape key for SQL
+        local -a _r=()
+        lx db --file "homelab_conf.db" --table "settings" --select @_r \
+            --cols "value" --where "key='${esc_key}'" --limit 1 2>/dev/null
+        [[ -n "${_r[0]:-}" ]] && echo "${_r[0]}" && return 0
     fi
 
     # Fall back to <type>_<id> convention

@@ -12,8 +12,10 @@
 # ==============================================================================
 function action_edit {
     local host_id
+    # Determine which host currently runs this VM via NFS live files
     host_id=$(host_for_vm "$ARG_ID") || return 1
 
+    # Build the qm set argument array from provided options
     local qm_args=()
     [[ -n "$ARG_NAME" ]]     && qm_args+=( --name     "$ARG_NAME" )
     [[ -n "$ARG_RAM" ]]      && qm_args+=( --memory   "$ARG_RAM" )
@@ -24,9 +26,11 @@ function action_edit {
     [[ -n "$ARG_OS_TYPE" ]]  && qm_args+=( --ostype   "$ARG_OS_TYPE" )
     [[ -n "$ARG_BRIDGE" ]]   && qm_args+=( --net0     "virtio,bridge=$ARG_BRIDGE" )
     [[ -n "$ARG_AUTOSTART" ]] && qm_args+=( --onboot "$([[ $ARG_AUTOSTART == on ]] && echo 1 || echo 0)" )
+    # Convert yes/no to 1/0 for balloon and agent flags
     [[ -n "$ARG_BALLOON" ]]  && qm_args+=( --balloon "$([[ $ARG_BALLOON == yes ]] && echo 1 || echo 0)" )
     [[ -n "$ARG_AGENT" ]]    && qm_args+=( --agent   "$([[ $ARG_AGENT   == yes ]] && echo 1 || echo 0)" )
 
+    # Refuse to run if no changes were requested
     if (( ${#qm_args[@]} == 0 )) && [[ -z "$ARG_DISK" ]]; then
         WARN "No options provided — nothing to edit."
         return 1
@@ -34,6 +38,7 @@ function action_edit {
 
     INFO "Editing VM vm-${ARG_ID} on host ${host_id}..."
 
+    # Apply all non-disk changes via qm set
     if (( ${#qm_args[@]} > 0 )); then
         run_on_host "$host_id" "qm set ${ARG_ID} ${qm_args[*]}" || return 1
     fi
@@ -53,8 +58,10 @@ function action_edit {
 # ==============================================================================
 function action_show_config {
     local host_id
+    # Determine which host currently runs this VM via NFS live files
     host_id=$(host_for_vm "$ARG_ID") || return 1
 
     INFO "Fetching config for VM vm-${ARG_ID}..."
+    # Retrieve the raw qm configuration from the host
     run_on_host "$host_id" "qm config ${ARG_ID}"
 }

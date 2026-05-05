@@ -12,8 +12,10 @@
 # ==============================================================================
 function action_edit {
     local host_id
+    # Determine which host currently runs this container via NFS live files
     host_id=$(host_for_container "$ARG_ID") || return 1
 
+    # Build the pct set argument array from provided options
     local pct_args=()
     [[ -n "$ARG_NAME" ]]     && pct_args+=( --hostname  "$ARG_NAME" )
     [[ -n "$ARG_RAM" ]]      && pct_args+=( --memory    "$ARG_RAM" )
@@ -24,12 +26,15 @@ function action_edit {
     [[ -n "$ARG_SSH" ]]      && pct_args+=( --ssh       "$ARG_SSH" )
     [[ -n "$ARG_AUTOSTART" ]] && pct_args+=( --onboot "$([[ $ARG_AUTOSTART == on ]] && echo 1 || echo 0)" )
 
+    # Add features if provided as a --multi array
     if (( ${#ARG_FEATURES[@]:-0} > 0 )); then
         local features_str
+        # Join feature names into a comma-separated string as required by pct
         features_str=$(IFS=,; echo "${ARG_FEATURES[*]}")
         pct_args+=( --features "$features_str" )
     fi
 
+    # Refuse to run if no changes were requested
     if (( ${#pct_args[@]} == 0 )) && [[ -z "${ARG_DISK:-}" ]]; then
         WARN "No options provided — nothing to edit."
         return 1
@@ -37,6 +42,7 @@ function action_edit {
 
     INFO "Editing container ct-${ARG_ID} on host ${host_id}..."
 
+    # Apply all non-disk changes via pct set
     if (( ${#pct_args[@]} > 0 )); then
         run_on_host "$host_id" "pct set ${ARG_ID} ${pct_args[*]}" || return 1
     fi
@@ -56,8 +62,10 @@ function action_edit {
 # ==============================================================================
 function action_show_config {
     local host_id
+    # Determine which host currently runs this container via NFS live files
     host_id=$(host_for_container "$ARG_ID") || return 1
 
     INFO "Fetching config for container ct-${ARG_ID}..."
+    # Retrieve the raw pct configuration from the host
     run_on_host "$host_id" "pct config ${ARG_ID}"
 }
