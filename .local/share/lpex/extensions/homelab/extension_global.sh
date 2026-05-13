@@ -1,261 +1,322 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : extension_global.sh
-# @desc_short       : Shared helpers for all homelab submodules.
-#                     Auto-sourced by LPEX once before arguments() runs.
+# @desc_short       : Shared device-list and SSH helpers for all homelab submodules.
 # ==============================================================================
 
-_SSH_OPTS=(-o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10)
-
-# Convenience alias — safe here because extension_global.sh is sourced in Phase 4
-# (after PATH_EXTENSION_DATA is set by the LPEX auto-loader).
-PATH_HOMELAB_DATA="${PATH_EXTENSION_DATA}"
-
-
+# --- get_hosts ---
+# @desc_short  : Prints all configured host names, one per line.
+# @usage       : get_hosts
 # ==============================================================================
-# --- validate_device ---
-# @desc_short   : Ensures exactly one target device is selected.
-#                 Sets globals _DEVICE_TYPE and _DEVICE_ID on success.
-# @usage        : validate_device || return 1
+function get_hosts {
+    printf '%s\n' "${HOSTS[@]}"             # emit each host name from config array
+}
+
+# --- get_observers ---
+# @desc_short  : Prints all configured observer names, one per line.
+# @usage       : get_observers
 # ==============================================================================
-function validate_device {
-    local count=0
-    declare -g _DEVICE_TYPE=""
-    declare -g _DEVICE_ID=""
+function get_observers {
+    printf '%s\n' "${OBSERVERS[@]}"         # emit each observer name from config array
+}
 
-    if [[ -n "$ARG_HOST" ]];      then (( count++ )); _DEVICE_TYPE="host";      _DEVICE_ID="$ARG_HOST";      fi
-    if [[ -n "$ARG_OBSERVER" ]];  then (( count++ )); _DEVICE_TYPE="observer";  _DEVICE_ID="$ARG_OBSERVER";  fi
-    if [[ -n "$ARG_CONTAINER" ]]; then (( count++ )); _DEVICE_TYPE="container"; _DEVICE_ID="$ARG_CONTAINER"; fi
-    if [[ -n "$ARG_VM" ]];        then (( count++ )); _DEVICE_TYPE="vm";        _DEVICE_ID="$ARG_VM";        fi
+# --- get_nodes ---
+# @desc_short  : Prints all physical node names (hosts + observers), one per line.
+# @usage       : get_nodes
+# ==============================================================================
+function get_nodes {
+    get_hosts                               # all hosts
+    get_observers                           # all observers
+}
 
-    if (( count != 1 )); then
-        ERROR "Exactly one target device required (--host, --observer, --container, or --vm)."
-        return 1
-    fi
+# --- get_containers ---
+# @desc_short  : Prints live container names from NFS share, one per line.
+# @usage       : get_containers
+# ==============================================================================
+function get_containers {
+    share_mounted             || return 0   # skip silently if NFS share not mounted
+    [[ -f "$FILE_CONTAINER_LIVE" ]] || return 0   # skip if live file missing
+    cat "$FILE_CONTAINER_LIVE"              # emit container names from live file
+}
+
+# --- get_vms ---
+# @desc_short  : Prints live VM names from NFS share, one per line.
+# @usage       : get_vms
+# ==============================================================================
+function get_vms {
+    share_mounted             || return 0   # skip silently if NFS share not mounted
+    [[ -f "$FILE_VM_LIVE" ]] || return 0   # skip if live file missing
+    cat "$FILE_VM_LIVE"                     # emit VM names from live file
+}
+
+# --- get_cmd_current_alias ---
+# @desc_short  : Prints the alias of the currently selected entry (pre-fill for edit).
+# @usage       : get_cmd_current_alias
+# ==============================================================================
+function get_cmd_current_alias {
+    local value
+    lx db --file "cmds.db" --table "commands" --select @value \
+        --cols "alias" --where "alias='${ARG_ALIAS}'" --limit 1
+    echo "$value"
+}
+
+# --- get_cmd_current_cmd ---
+# @desc_short  : Prints the cmd of the currently selected entry (pre-fill for edit).
+# @usage       : get_cmd_current_cmd
+# ==============================================================================
+function get_cmd_current_cmd {
+    local value
+    lx db --file "cmds.db" --table "commands" --select @value \
+        --cols "cmd" --where "alias='${ARG_ALIAS}'" --limit 1
+    echo "$value"
+}
+
+# --- get_cmd_current_description ---
+# @desc_short  : Prints the description of the currently selected entry (pre-fill for edit).
+# @usage       : get_cmd_current_description
+# ==============================================================================
+function get_cmd_current_description {
+    local value
+    lx db --file "cmds.db" --table "commands" --select @value \
+        --cols "description" --where "alias='${ARG_ALIAS}'" --limit 1
+    echo "$value"
+}
+
+# --- get_cmd_current_devices ---
+# @desc_short  : Prints all devices that have the currently selected alias, one per line.
+# @usage       : get_cmd_current_devices
+# ==============================================================================
+function get_cmd_current_devices {
+    declare -a rows
+    lx db --file "cmds.db" --table "commands" --select @rows \
+        --cols "device" --where "alias='${ARG_ALIAS}'"
+    printf '%s\n' "${rows[@]}"
+}
+
+# --- get_cmd_aliases ---
+# @desc_short  : Prints all saved command aliases with their device as "alias # device", one per line.
+# @usage       : get_cmd_aliases
+# ==============================================================================
+function get_cmd_aliases {
+    declare -a rows
+    lx db --file "cmds.db" --table "commands" --select @rows --cols "alias,device" --sep " # "
+    printf '%s\n' "${rows[@]}"
+}
+
+# --- get_all_devices ---
+# @desc_short  : Prints all known device names (nodes + containers + VMs), one per line.
+# @usage       : get_all_devices
+# ==============================================================================
+function get_all_devices {
+    get_nodes                               # physical nodes (hosts + observers)
+    get_containers                          # live containers
+    get_vms                                 # live VMs
 }
 
 # ==============================================================================
-# --- device_ip ---
-# @desc_short   : Returns the IP of a host or observer.
-#                 Tries homelab_conf.db first, falls back to config.conf vars.
-# @parameter    : $1 | type | "host" or "observer"
-# @parameter    : $2 | id   | Numeric ID (e.g. 1, 2)
+# --- SSH Helpers ---
+# Functions for resolving device connection details and executing remote commands.
 # ==============================================================================
-function device_ip {
-    local type="$1" id="$2"
 
-    # Build the flat settings key for this device (e.g. IP_HOST_1, IP_OBSERVER_2)
-    local varname
-    case "$type" in
-        host)     varname="IP_HOST_${id}" ;;
-        observer) varname="IP_OBSERVER_${id}" ;;
-        *) ERROR "Unknown device type for IP lookup: $type"; return 1 ;;
-    esac
-
-    # Try the flat settings table first if the DB exists
-    if [[ -f "${PATH_HOMELAB_DATA}/homelab_conf.db" ]]; then
-        local esc_key="${varname//\'/\'\'}"   # escape key for SQL
-        local -a _db_result=()
-        lx db --file "homelab_conf.db" --table "settings" --select @_db_result \
-            --cols "value" --where "key='${esc_key}'" --limit 1 2>/dev/null
-        if [[ -n "${_db_result[0]:-}" ]]; then
-            echo "${_db_result[0]}"
-            return 0
-        fi
-    fi
-
-    # Fall back to config.conf variables (IP_HOST_1, IP_OBSERVER_2, etc.)
-    local ip="${!varname:-}"
-    if [[ -z "$ip" ]]; then
-        ERROR "No IP found for ${type} ${id} — set ${varname} in config.conf or homelab_conf.db"
-        return 1
-    fi
-    echo "$ip"
-}
-
+# --- get_device_ip ---
+# @desc_short  : Resolves a device name to its IP address.
+# @usage       : get_device_ip <device>
+# @parameter   : $1 | device | Logical device name (e.g. host_1, observer_2).
+# @notes       : Config-driven — adding a new device only requires updating config.conf
+#                (HOSTS/OBSERVERS array + IP_HOST_x / IP_OBSERVER_x variable).
+#                Uses indirect variable expansion: HOSTS[0]="host_1" → var="IP_HOST_1" → ${!var}
 # ==============================================================================
-# --- device_name ---
-# @desc_short   : Returns the logical name of a host or observer (e.g. "host_1").
-# @parameter    : $1 | type | "host" or "observer"
-# @parameter    : $2 | id   | Numeric ID
-# ==============================================================================
-function device_name {
-    local type="$1" id="$2"
+function get_device_ip {
+    local device="$1"
 
-    # Build the flat settings key for this device name (e.g. DEVICENAME_HOST_1)
-    local varname
-    case "$type" in
-        host)     varname="DEVICENAME_HOST_${id}" ;;
-        observer) varname="DEVICENAME_OBSERVER_${id}" ;;
-        *)        echo "${type}_${id}"; return 0 ;;   # unknown type: fall back to convention
-    esac
-
-    # Try the flat settings table first if the DB exists
-    if [[ -f "${PATH_HOMELAB_DATA}/homelab_conf.db" ]]; then
-        local esc_key="${varname//\'/\'\'}"   # escape key for SQL
-        local -a _r=()
-        lx db --file "homelab_conf.db" --table "settings" --select @_r \
-            --cols "value" --where "key='${esc_key}'" --limit 1 2>/dev/null
-        [[ -n "${_r[0]:-}" ]] && echo "${_r[0]}" && return 0
-    fi
-
-    # Fall back to <type>_<id> convention
-    echo "${type}_${id}"
-}
-
-# ==============================================================================
-# --- leader_observer_id ---
-# @desc_short   : Returns the ID of the current leader observer.
-#                 Reads from NFS state if available, falls back to config default.
-# ==============================================================================
-function leader_observer_id {
-    # Try reading the leader name from NFS observer health state
-    local leader_name
-    for obs_status in "${PATH_SHARE_STATE}/observers"/*/status.json; do
-        if [[ -f "$obs_status" ]]; then
-            leader_name=$(jq -r '.observer_leader // empty' "$obs_status" 2>/dev/null)
-            [[ -n "$leader_name" ]] && break
-        fi
-    done
-
-    # If leader name found, extract numeric ID suffix (e.g. "observer_1" → "1")
-    if [[ -n "${leader_name:-}" ]]; then
-        echo "${leader_name##*_}"
-        return 0
-    fi
-
-    # Fall back to config default
-    echo "${_ROUTING_OBSERVER_ID:-1}"
-}
-
-# ==============================================================================
-# --- run_on_observer ---
-# @desc_short   : Runs a command on an observer via direct SSH.
-# @parameter    : $1 | id  | Observer ID
-# @parameter    : $2 | cmd | Command to execute
-# ==============================================================================
-function run_on_observer {
-    local id="$1" cmd="$2"
-    local ip
-    ip=$(device_ip "observer" "$id") || return 1
-    ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${ip}" "$cmd"
-}
-
-# ==============================================================================
-# --- run_on_host ---
-# @desc_short   : Runs a command on a host, routed through the leader observer.
-# @parameter    : $1 | id  | Host ID
-# @parameter    : $2 | cmd | Command to execute
-# ==============================================================================
-function run_on_host {
-    local id="$1" cmd="$2"
-    local host_ip obs_id obs_ip
-    host_ip=$(device_ip "host" "$id") || return 1
-    obs_id=$(leader_observer_id)
-    obs_ip=$(device_ip "observer" "$obs_id") || return 1
-    ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${obs_ip}" \
-        "ssh ${_SSH_OPTS[*]} ${SSH_USER_HOST}@${host_ip} '${cmd}'"
-}
-
-# ==============================================================================
-# --- host_for_container ---
-# @desc_short   : Finds the host ID that currently runs a container.
-#                 Reads from NFS lxc-live.txt files.
-# @parameter    : $1 | ctid | Container ID (VMID)
-# ==============================================================================
-function host_for_container {
-    local ctid="$1"
-
-    local live_file
-    for live_file in "${PATH_SHARE_STATE}/hosts"/*/lxc-live.txt; do
-        [[ -f "$live_file" ]] || continue
-        if grep -q "^${ctid} #" "$live_file" 2>/dev/null; then
-            local host_name
-            host_name=$(basename "$(dirname "$live_file")")
-            echo "${host_name##*_}"
+    # Search HOSTS array; index i maps to IP_HOST_$(i+1) via indirect expansion
+    for i in "${!HOSTS[@]}"; do
+        if [[ "${HOSTS[$i]}" == "$device" ]]; then
+            local var="IP_HOST_$((i+1))"
+            echo "${!var}"
             return 0
         fi
     done
 
-    ERROR "Container ${ctid} not found in any host live file (NFS may not be mounted)"
+    # Search OBSERVERS array; index i maps to IP_OBSERVER_$(i+1) via indirect expansion
+    for i in "${!OBSERVERS[@]}"; do
+        if [[ "${OBSERVERS[$i]}" == "$device" ]]; then
+            local var="IP_OBSERVER_$((i+1))"
+            echo "${!var}"
+            return 0
+        fi
+    done
+
+    ERROR "Unknown device: '${device}'"
+    return 1
+}
+
+# --- get_device_ssh_user ---
+# @desc_short  : Resolves the SSH user for a given device.
+# @usage       : get_device_ssh_user <device>
+# @parameter   : $1 | device | Logical device name.
+# @notes       : User is determined by device type (host → SSH_USER_HOST,
+#                observer → SSH_USER_OBSERVER), both defined in config.conf.
+# ==============================================================================
+function get_device_ssh_user {
+    local device="$1"
+
+    # Check if device is a known host
+    for host in "${HOSTS[@]}"; do
+        if [[ "$host" == "$device" ]]; then
+            echo "$SSH_USER_HOST"
+            return 0
+        fi
+    done
+
+    # Check if device is a known observer
+    for observer in "${OBSERVERS[@]}"; do
+        if [[ "$observer" == "$device" ]]; then
+            echo "$SSH_USER_OBSERVER"
+            return 0
+        fi
+    done
+
+    ERROR "Unknown device: '${device}'"
+    return 1
+}
+
+# --- execute_on_device ---
+# @desc_short  : Executes a command on a remote device via SSH.
+# @usage       : execute_on_device <device> <cmd>
+# @parameter   : $1 | device | Logical device name.
+# @parameter   : $2 | cmd    | Shell command to execute remotely.
+# ==============================================================================
+function execute_on_device {
+    local device="$1"
+    local cmd="$2"
+    local ip user
+
+    # Resolve device to IP and SSH user
+    ip=$(get_device_ip "$device")     || return 1
+    user=$(get_device_ssh_user "$device") || return 1
+
+    lx cmd --run "ssh ${user}@${ip} '${cmd}'" --show-cmd
+}
+
+# --- find_container_host ---
+# @desc_short  : Finds which host is running a given container ID.
+# @usage       : find_container_host <container_id>
+# @parameter   : $1 | container_id | Proxmox container ID (e.g. 101).
+# ==============================================================================
+function find_container_host {
+    local container_id="$1"
+    local ip user
+
+    # Query each host via SSH — return the first one that lists the container ID
+    for host in "${HOSTS[@]}"; do
+        ip=$(get_device_ip "$host")       || continue
+        user=$(get_device_ssh_user "$host") || continue
+
+        if lx cmd --run "ssh ${user}@${ip} 'pct list 2>/dev/null | awk \"NR>1{print \$1}\" | grep -qx ${container_id}'" \
+                --quiet --no-error-msg; then
+            echo "$host"
+            return 0
+        fi
+    done
+
+    ERROR "Container '${container_id}' not found on any host."
+    return 1
+}
+
+# --- find_vm_host ---
+# @desc_short  : Finds which host is running a given VM ID.
+# @usage       : find_vm_host <vm_id>
+# @parameter   : $1 | vm_id | Proxmox VM ID (e.g. 201).
+# ==============================================================================
+function find_vm_host {
+    local vm_id="$1"
+    local ip user
+
+    # Query each host via SSH — return the first one that lists the VM ID
+    for host in "${HOSTS[@]}"; do
+        ip=$(get_device_ip "$host")       || continue
+        user=$(get_device_ssh_user "$host") || continue
+
+        if lx cmd --run "ssh ${user}@${ip} 'qm list 2>/dev/null | awk \"NR>1{print \$1}\" | grep -qx ${vm_id}'" \
+                --quiet --no-error-msg; then
+            echo "$host"
+            return 0
+        fi
+    done
+
+    ERROR "VM '${vm_id}' not found on any host."
     return 1
 }
 
 # ==============================================================================
-# --- host_for_vm ---
-# @desc_short   : Finds the host ID that currently runs a VM.
-#                 Reads from NFS vm-live.txt files.
-# @parameter    : $1 | vmid | VM ID (VMID)
+# --- Container / VM Execution ---
+# Higher-level execute helpers for indirect device access (via host).
 # ==============================================================================
-function host_for_vm {
-    local vmid="$1"
 
-    local live_file
-    for live_file in "${PATH_SHARE_STATE}/hosts"/*/vm-live.txt; do
-        [[ -f "$live_file" ]] || continue
-        if grep -q "^${vmid} " "$live_file" 2>/dev/null; then
-            local host_name
-            host_name=$(basename "$(dirname "$live_file")")
-            echo "${host_name##*_}"
-            return 0
-        fi
-    done
+# --- execute_on_container ---
+# @desc_short  : Executes a command inside a container via 'pct exec' on its host.
+# @usage       : execute_on_container <container_id> <cmd>
+# @parameter   : $1 | container_id | Proxmox container ID.
+# @parameter   : $2 | cmd          | Command to run inside the container.
+# ==============================================================================
+function execute_on_container {
+    local container_id="$1"
+    local cmd="$2"
+    local host ip user
 
-    ERROR "VM ${vmid} not found in any host live file (NFS may not be mounted)"
-    return 1
+    # Locate which host is running this container
+    host=$(find_container_host "$container_id") || return 1
+    ip=$(get_device_ip "$host")                  || return 1
+    user=$(get_device_ssh_user "$host")          || return 1
+
+    lx cmd --run "ssh ${user}@${ip} 'pct exec ${container_id} -- ${cmd}'" --show-cmd
 }
 
+# --- get_vm_ip ---
+# @desc_short  : Resolves a VM's primary IP address via QEMU agent on its host.
+# @usage       : get_vm_ip <vm_id>
+# @parameter   : $1 | vm_id | Proxmox VM ID.
+# @notes       : Requires QEMU guest agent to be running inside the VM.
 # ==============================================================================
-# --- run_on_container ---
-# @desc_short   : Runs a command inside a container via pct exec.
-# @parameter    : $1 | ctid | Container ID (VMID)
-# @parameter    : $2 | cmd  | Command to execute inside the container
-# ==============================================================================
-function run_on_container {
-    local ctid="$1" cmd="$2"
-    local host_id host_ip obs_id obs_ip
-    host_id=$(host_for_container "$ctid") || return 1
-    host_ip=$(device_ip "host" "$host_id") || return 1
-    obs_id=$(leader_observer_id)
-    obs_ip=$(device_ip "observer" "$obs_id") || return 1
-    ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${obs_ip}" \
-        "ssh ${_SSH_OPTS[*]} ${SSH_USER_HOST}@${host_ip} \
-        'pct exec ${ctid} -- bash -c ${cmd@Q}'"
+function get_vm_ip {
+    local vm_id="$1"
+    local host ip user vm_ip
+
+    host=$(find_vm_host "$vm_id")        || return 1
+    ip=$(get_device_ip "$host")           || return 1
+    user=$(get_device_ssh_user "$host")   || return 1
+
+    # Query VM's IP via QEMU agent — captures first IP from hostname -I output
+    lx cmd --run "ssh ${user}@${ip} 'qm guest exec ${vm_id} -- hostname -I 2>/dev/null'" \
+        @vm_ip --quiet --no-error-msg
+
+    # Strip to first IP only (hostname -I may return multiple addresses)
+    vm_ip="${vm_ip%% *}"
+
+    if [[ -z "$vm_ip" ]]; then
+        ERROR "Could not resolve IP for VM '${vm_id}' — QEMU agent may not be running."
+        return 1
+    fi
+
+    echo "$vm_ip"
 }
 
+# --- execute_on_vm ---
+# @desc_short  : Executes a command inside a VM via 'qm guest exec' on its host.
+# @usage       : execute_on_vm <vm_id> <cmd>
+# @parameter   : $1 | vm_id | Proxmox VM ID.
+# @parameter   : $2 | cmd   | Command to run inside the VM.
+# @notes       : Requires QEMU guest agent. For file operations use SSH ProxyJump instead.
 # ==============================================================================
-# --- run_on_device ---
-# @desc_short   : Routes a command to the correct device based on type.
-# @parameter    : $1 | type | Device type (observer, host, container, vm)
-# @parameter    : $2 | id   | Device ID
-# @parameter    : $3 | cmd  | Command to execute
-# ==============================================================================
-function run_on_device {
-    local type="$1" id="$2" cmd="$3"
-    case "$type" in
-        observer)  run_on_observer  "$id" "$cmd" ;;
-        host)      run_on_host      "$id" "$cmd" ;;
-        container) run_on_container "$id" "$cmd" ;;
-        vm)
-            local host_id host_ip obs_id obs_ip
-            host_id=$(host_for_vm "$id") || return 1
-            host_ip=$(device_ip "host" "$host_id") || return 1
-            obs_id=$(leader_observer_id)
-            obs_ip=$(device_ip "observer" "$obs_id") || return 1
-            local -a _vm_ip_r=()
-            lx db --file "homelab_conf.db" --table "vms" --select @_vm_ip_r \
-                --cols "ip" --where "id=${id}" --limit 1 2>/dev/null
-            local vm_ip="${_vm_ip_r[0]:-}"
-            if [[ -n "$vm_ip" ]]; then
-                ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${obs_ip}" \
-                    "ssh ${_SSH_OPTS[*]} ${SSH_USER_HOST}@${host_ip} \
-                    'ssh ${_SSH_OPTS[*]} root@${vm_ip} ${cmd@Q}'"
-            else
-                ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${obs_ip}" \
-                    "ssh ${_SSH_OPTS[*]} ${SSH_USER_HOST}@${host_ip} \
-                    'qm guest exec ${id} -- bash -c ${cmd@Q}'"
-            fi
-            ;;
-        *) ERROR "Unknown device type: $type"; return 1 ;;
-    esac
+function execute_on_vm {
+    local vm_id="$1"
+    local cmd="$2"
+    local host ip user
+
+    host=$(find_vm_host "$vm_id")        || return 1
+    ip=$(get_device_ip "$host")           || return 1
+    user=$(get_device_ssh_user "$host")   || return 1
+
+    lx cmd --run "ssh ${user}@${ip} 'qm guest exec ${vm_id} -- ${cmd}'" --show-cmd
 }

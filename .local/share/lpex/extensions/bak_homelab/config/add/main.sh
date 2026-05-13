@@ -20,6 +20,6 @@ function extension_start {
         return 1
     fi
 
-    _config_set_value "$ARG_KEY" "$ARG_VALUE"   # insert the new key-value pair
-    OK "Entry set: ${ARG_KEY} = ${ARG_VALUE}"
+    _config_set_value "$ARG_KEY" "$ARG_VALUE" "${ARG_SECTION:-}"   # insert with optional section
+    OK "Entry added: ${ARG_KEY} = ${ARG_VALUE}${ARG_SECTION:+ (section: ${ARG_SECTION})}"
 }

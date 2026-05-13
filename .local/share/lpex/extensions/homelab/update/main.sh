@@ -1,65 +1,44 @@
 #!/bin/bash
 # ==============================================================================
-# @meta_name        : update/main.sh
-# @desc_short       : Entry point for the update submodule — validates and routes.
+# @meta_name        : main.sh
+# @desc_short       : Validates arguments and routes to update actions.
 # ==============================================================================
 
-source "$(dirname "${BASH_SOURCE[0]}")/run.sh"
+source "${PATH_EXTENSION}/_run.sh"
 
 # ==============================================================================
 # --- extension_start ---
-# @desc_short   : Validates arguments, then routes to single or bulk update.
+# @desc_short  : Collects all selected devices into one array, validates that at
+#                least one was given, then iterates and updates each device.
 # ==============================================================================
 function extension_start {
-    local dry_run=0 patches=0
-    (( ARG_DRY_RUN )) && dry_run=1
-    (( ARG_PATCHES )) && patches=1
-
-    # Determine whether a single device or a bulk flag was provided
-    local has_device=0 has_bulk=0
-
-    validate_device 2>/dev/null && has_device=1
-
-    [[ -n "$ARG_ALL" || -n "$ARG_ALL_OBSERVERS" || \
-       -n "$ARG_ALL_HOSTS" || -n "$ARG_ALL_CLIENTS" ]] && has_bulk=1
-
-    # Require exactly one mode: specific device OR bulk flag
-    if (( !has_device && !has_bulk )); then
-        ERROR "Specify a device (--host, --observer, --container, --vm) or a bulk flag (--all, --all-hosts, ...)."
-        return 1
-    fi
-
-    if (( has_device && has_bulk )); then
-        ERROR "Cannot combine a specific device with a bulk flag."
-        return 1
-    fi
-
-    # --- Single device --------------------------------------------------------
-    if (( has_device )); then
-        update_device "$_DEVICE_TYPE" "$_DEVICE_ID" "$dry_run" "$patches"
-        return $?
-    fi
-
-    # --- Bulk update ----------------------------------------------------------
+    local -a all_targets=()
     local any_error=0
 
-    # --all: observers first, then hosts (sequentially to avoid split-brain risk)
-    if [[ -n "$ARG_ALL" ]]; then
-        update_all_observers "$dry_run" "$patches" || any_error=1
-        update_all_hosts     "$dry_run" "$patches" || any_error=1
-        (( any_error )) && return 1
-        return 0
+    # Collect all selected devices into a single array as "type:device" pairs.
+    # Each ARG_* is an array when --multi is used — the for loop handles 0..n entries.
+    for host      in "${ARG_HOST[@]}";      do all_targets+=("host:${host}");           done
+    for observer  in "${ARG_OBSERVER[@]}";  do all_targets+=("observer:${observer}");   done
+    for container in "${ARG_CONTAINER[@]}"; do all_targets+=("container:${container}"); done
+    for vm        in "${ARG_VM[@]}";        do all_targets+=("vm:${vm}");               done
+
+    # Require at least one device — nothing to update otherwise.
+    if (( ${#all_targets[@]} == 0 )); then
+        ERROR "Specify at least one device (--host, --observer, --container, --vm)."
+        return 1
     fi
 
-    if [[ -n "$ARG_ALL_OBSERVERS" ]]; then
-        update_all_observers "$dry_run" "$patches"; return $?
-    fi
+    # Iterate all collected targets sequentially and update each one.
+    for target in "${all_targets[@]}"; do
+        # Split "type:device" pair — %% strips from first colon to end for type,
+        # # strips up to and including first colon for device.
+        local type="${target%%:*}"
+        local device="${target#*:}"
+        # Track failure without stopping — all targets should be attempted.
+        update_device "$type" "$device" "$ARG_DRY_RUN" "$ARG_PATCHES" || any_error=1
+    done
 
-    if [[ -n "$ARG_ALL_HOSTS" ]]; then
-        update_all_hosts "$dry_run" "$patches"; return $?
-    fi
-
-    if [[ -n "$ARG_ALL_CLIENTS" ]]; then
-        update_all_clients "$dry_run" "$patches"; return $?
-    fi
+    # Propagate failure if any update failed.
+    (( any_error )) && return 1
+    return 0
 }

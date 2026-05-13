@@ -1,98 +1,39 @@
 #!/bin/bash
 # ==============================================================================
-# @meta_name        : ssh/main.sh
-# @desc_short       : Opens an interactive SSH session on the target device.
+# @meta_name        : main.sh
+# @desc_short       : Validates device selection and opens an interactive SSH session.
 # ==============================================================================
+
+source "${PATH_EXTENSION}/_connect.sh"
 
 # ==============================================================================
 # --- extension_start ---
-# @desc_short   : Validates device selection and opens the appropriate session.
+# @desc_short  : Enforces exactly one device flag, then opens the SSH session.
 # ==============================================================================
 function extension_start {
-    validate_device || return 1
+    local device_count=0
 
-    # Route to device-type-specific SSH handler
-    case "$_DEVICE_TYPE" in
-        observer)  ssh_observer  "$_DEVICE_ID" ;;
-        host)      ssh_host      "$_DEVICE_ID" ;;
-        container) ssh_container "$_DEVICE_ID" ;;
-        vm)        ssh_vm        "$_DEVICE_ID" ;;
-    esac
-}
+    # Count how many device flags were provided.
+    [[ -n "$ARG_HOST" ]]      && (( device_count++ ))
+    [[ -n "$ARG_OBSERVER" ]]  && (( device_count++ ))
+    [[ -n "$ARG_CONTAINER" ]] && (( device_count++ ))
+    [[ -n "$ARG_VM" ]]        && (( device_count++ ))
 
-# ==============================================================================
-# --- ssh_observer ---
-# @desc_short   : Opens direct SSH session to an observer.
-# ==============================================================================
-function ssh_observer {
-    local id="$1"
-    local ip
-    ip=$(device_ip "observer" "$id") || return 1
-    local name
-    name=$(device_name "observer" "$id")
-    INFO "Connecting to observer ${name} (${SSH_USER_OBSERVER}@${ip})..."
-    ssh "${_SSH_OPTS[@]}" "${SSH_USER_OBSERVER}@${ip}"
-}
-
-# ==============================================================================
-# --- ssh_host ---
-# @desc_short   : Opens SSH session to a host, tunnelled through the leader observer.
-# ==============================================================================
-function ssh_host {
-    local id="$1"
-    local host_ip obs_id obs_ip
-    host_ip=$(device_ip "host" "$id") || return 1
-    obs_id=$(leader_observer_id)
-    obs_ip=$(device_ip "observer" "$obs_id") || return 1
-    local name
-    name=$(device_name "host" "$id")
-    INFO "Connecting to host ${name} (via observer ${obs_id})..."
-    ssh "${_SSH_OPTS[@]}" -J "${SSH_USER_OBSERVER}@${obs_ip}" \
-        "${SSH_USER_HOST}@${host_ip}"
-}
-
-# ==============================================================================
-# --- ssh_container ---
-# @desc_short   : Enters a container via pct enter, routed through observer → host.
-# ==============================================================================
-function ssh_container {
-    local ctid="$1"
-    local host_id host_ip obs_id obs_ip
-    host_id=$(host_for_container "$ctid") || return 1
-    host_ip=$(device_ip "host" "$host_id") || return 1
-    obs_id=$(leader_observer_id)
-    obs_ip=$(device_ip "observer" "$obs_id") || return 1
-    INFO "Entering container ${ctid} via host_${host_id}..."
-    ssh "${_SSH_OPTS[@]}" -t \
-        -J "${SSH_USER_OBSERVER}@${obs_ip}" \
-        "${SSH_USER_HOST}@${host_ip}" \
-        "pct enter ${ctid}"
-}
-
-# ==============================================================================
-# --- ssh_vm ---
-# @desc_short   : Opens SSH to a VM via jump through observer → host → VM IP.
-# ==============================================================================
-function ssh_vm {
-    local vmid="$1"
-    local host_id host_ip obs_id obs_ip
-    host_id=$(host_for_vm "$vmid") || return 1
-    host_ip=$(device_ip "host" "$host_id") || return 1
-    obs_id=$(leader_observer_id)
-    obs_ip=$(device_ip "observer" "$obs_id") || return 1
-
-    local -a _r=()
-    lx db --file "homelab_conf.db" --table "vms" --select @_r \
-        --cols "ip" --where "id=${vmid}" --limit 1 2>/dev/null
-    local vm_ip="${_r[0]:-}"
-
-    if [[ -z "$vm_ip" ]]; then
-        ERROR "No IP found for VM ${vmid} in homelab_conf.db — add it to enable SSH."
+    # Require exactly one device — no device means nothing to connect to.
+    if (( device_count == 0 )); then
+        ERROR "No device specified. Use --host, --observer, --container, or --vm."
         return 1
     fi
 
-    INFO "Connecting to VM ${vmid} (${vm_ip}) via host_${host_id}..."
-    ssh "${_SSH_OPTS[@]}" \
-        -J "${SSH_USER_OBSERVER}@${obs_ip},${SSH_USER_HOST}@${host_ip}" \
-        "root@${vm_ip}"
+    # More than one device is ambiguous — SSH opens one interactive session at a time.
+    if (( device_count > 1 )); then
+        ERROR "Only one device can be targeted at a time."
+        return 1
+    fi
+
+    # Route to the appropriate connection function based on which flag was set.
+    [[ -n "$ARG_OBSERVER" ]]  && { ssh_observer  "$ARG_OBSERVER";  return $?; }
+    [[ -n "$ARG_HOST" ]]      && { ssh_host      "$ARG_HOST";      return $?; }
+    [[ -n "$ARG_CONTAINER" ]] && { ssh_container "$ARG_CONTAINER"; return $?; }
+    [[ -n "$ARG_VM" ]]        && { ssh_vm        "$ARG_VM";        return $?; }
 }

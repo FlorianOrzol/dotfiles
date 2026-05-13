@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : config/push/main.sh
-# @desc_short       : homelab.conf generieren und auf observer_1 deployen.
+# @desc_short       : Generate homelab.conf from DB and deploy it to the leader observer.
 # ==============================================================================
 source "${PATH_EXTENSION_SOURCE}/${NAME_EXTENSION}/config/_generate.sh"
 

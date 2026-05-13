@@ -8,13 +8,17 @@
 
 # ==============================================================================
 # --- _config_init_db ---
-# @desc_short   : Creates the settings table if not yet present.
-#                 Safe to call multiple times (CREATE TABLE IF NOT EXISTS).
+# @desc_short   : Creates the settings table if not yet present and migrates
+#                 existing DBs by adding the section column when missing.
+#                 Safe to call multiple times.
 # ==============================================================================
 function _config_init_db {
-    # Single flat key/value table — all config entries live here
+    # Create flat key/value/section table — all config entries live here
     lx db --file "homelab_conf.db" --table "settings" --create-table \
-        --cols "key TEXT PRIMARY KEY, value TEXT NOT NULL"
+        --cols "key TEXT PRIMARY KEY, value TEXT NOT NULL, section TEXT NOT NULL DEFAULT ''"
+    # Migrate older DBs that lack the section column — error is silently ignored if already present
+    lx db --file "homelab_conf.db" --exec \
+        "ALTER TABLE settings ADD COLUMN section TEXT NOT NULL DEFAULT '';" 2>/dev/null || true
 }
 
 # ==============================================================================
@@ -25,24 +29,35 @@ function _config_init_db {
 function _config_key_exists {
     local key="$1"
     local esc_key="${key//\'/\'\'}"    # escape single quotes for SQL
-    local -a result=()
+    local result                       # scalar — non-empty when key is found
     lx db --file "homelab_conf.db" --table "settings" --select @result \
         --cols "key" --where "key='${esc_key}'" --limit 1 2>/dev/null
-    [[ -n "${result[0]:-}" ]]          # non-empty result → key found → return 0
+    [[ -n "${result:-}" ]]             # non-empty result → key found → return 0
 }
 
 # ==============================================================================
 # --- _config_set_value ---
 # @desc_short   : Upserts a key-value pair into the settings table.
-# @parameter    : $1 | key   | Config key
-# @parameter    : $2 | value | New value to store
+#                 When section is provided it is stored/updated alongside value.
+#                 When section is omitted the existing section is preserved on update.
+# @parameter    : $1 | key     | Config key
+# @parameter    : $2 | value   | Value to store
+# @parameter    : $3 | section | Section label (optional)
 # ==============================================================================
 function _config_set_value {
-    local key="$1" value="$2"
+    local key="$1" value="$2" section="${3:-}"
     local esc_key="${key//\'/\'\'}"    # escape key for SQL
     local esc_val="${value//\'/\'\'}"  # escape value for SQL
-    lx db --file "homelab_conf.db" --exec \
-        "INSERT OR REPLACE INTO settings(key,value) VALUES('${esc_key}','${esc_val}');"
+    local esc_sec="${section//\'/\'\'}" # escape section for SQL
+    if [[ -n "$section" ]]; then
+        # Full upsert — section is explicitly provided, overwrite any existing row
+        lx db --file "homelab_conf.db" --exec \
+            "INSERT OR REPLACE INTO settings(key,value,section) VALUES('${esc_key}','${esc_val}','${esc_sec}');"
+    else
+        # Value-only upsert — preserve existing section on conflict (edit use-case)
+        lx db --file "homelab_conf.db" --exec \
+            "INSERT INTO settings(key,value,section) VALUES('${esc_key}','${esc_val}','') ON CONFLICT(key) DO UPDATE SET value='${esc_val}';"
+    fi
 }
 
 # ==============================================================================
@@ -54,10 +69,10 @@ function _config_get_current_value {
     local key="$1"
     [[ -z "$key" ]] && return          # nothing to look up if key is not set
     local esc_key="${key//\'/\'\'}"    # escape single quotes for SQL
-    local -a result=()
+    local result                       # scalar — receives single-row output directly
     lx db --file "homelab_conf.db" --table "settings" --select @result \
         --cols "value" --where "key='${esc_key}'" --limit 1 2>/dev/null
-    echo "${result[0]:-}"             # print found value, or empty string if missing
+    echo "${result:-}"                 # print found value, or empty string if missing
 }
 
 # ==============================================================================
