@@ -12,7 +12,8 @@
 #                --device   | Target device (required)
 # ==============================================================================
 function arguments {
-    arg_direct @cmd    --description "Command to execute remotely"
-    arg_value  @device --description "Target device" --fzf \
+    arg_direct  @device --description "Target device" \
                            --option-cmd "get_all_devices"
+
+    arg_value @cmd    --description "Command to execute remotely" --multi
 }

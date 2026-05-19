@@ -12,6 +12,6 @@ function extension_start {
     [[ -z "$ARG_CMD" ]]    && { ERROR "No command specified."; return 1; }
     [[ -z "$ARG_DEVICE" ]] && { ERROR "No device specified.";  return 1; }
 
-    INFO "Running command on '${ARG_DEVICE}'..."
-    execute_on_device "$ARG_DEVICE" "$ARG_CMD"
+#    INFO "Running command on '${ARG_DEVICE}'..."
+    execute_on_device "$ARG_DEVICE" "${ARG_CMD[*]}"
 }

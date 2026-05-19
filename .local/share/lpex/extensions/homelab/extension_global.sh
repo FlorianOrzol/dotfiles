@@ -5,23 +5,46 @@
 # ==============================================================================
 
 # --- get_hosts ---
-# @desc_short  : Prints all configured host names, one per line.
+# @desc_short  : Prints all configured hosts as "name # ip", one per line.
 # @usage       : get_hosts
+# @notes       : Iterates DEVICENAME_HOST_N / IP_HOST_N scalars from config — no array needed.
+#                Works inside bash -c subshells when exported (see export block below).
 # ==============================================================================
 function get_hosts {
-    printf '%s\n' "${HOSTS[@]}"             # emit each host name from config array
+    local i=1 host_var ip_var host ip
+    while true; do
+        host_var="DEVICENAME_HOST_${i}"
+        host="${!host_var}"
+        [[ -z "$host" ]] && break              # no more hosts defined in config
+        ip_var="IP_HOST_${i}"
+        ip="${!ip_var}"
+        printf '%s # %s\n' "$host" "$ip"
+        (( i++ ))
+    done
 }
 
 # --- get_observers ---
-# @desc_short  : Prints all configured observer names, one per line.
+# @desc_short  : Prints all configured observers as "name # ip (role)", one per line.
 # @usage       : get_observers
+# @notes       : Iterates DEVICENAME_OBSERVER_N / IP_OBSERVER_N scalars from config.
+#                Works inside bash -c subshells when exported (see export block below).
 # ==============================================================================
 function get_observers {
-    printf '%s\n' "${OBSERVERS[@]}"         # emit each observer name from config array
+    local i=1 obs_var ip_var observer ip role
+    while true; do
+        obs_var="DEVICENAME_OBSERVER_${i}"
+        observer="${!obs_var}"
+        [[ -z "$observer" ]] && break          # no more observers defined in config
+        ip_var="IP_OBSERVER_${i}"
+        ip="${!ip_var}"
+        [[ "$observer" == "$OBSERVER_PRIMARY" ]] && role="primary" || role="standby"
+        printf '%s # %s (%s)\n' "$observer" "$ip" "$role"
+        (( i++ ))
+    done
 }
 
 # --- get_nodes ---
-# @desc_short  : Prints all physical node names (hosts + observers), one per line.
+# @desc_short  : Prints all physical nodes (hosts + observers) as "name # ip", one per line.
 # @usage       : get_nodes
 # ==============================================================================
 function get_nodes {
@@ -196,7 +219,7 @@ function execute_on_device {
     ip=$(get_device_ip "$device")     || return 1
     user=$(get_device_ssh_user "$device") || return 1
 
-    lx cmd --run "ssh ${user}@${ip} '${cmd}'" --show-cmd
+    lx cmd --run "ssh ${user}@${ip} '${cmd}'"
 }
 
 # --- find_container_host ---
@@ -320,3 +343,14 @@ function execute_on_vm {
 
     lx cmd --run "ssh ${user}@${ip} 'qm guest exec ${vm_id} -- ${cmd}'" --show-cmd
 }
+
+# ==============================================================================
+# --- Export block ---
+# argument_completions.sh runs --option-cmd via `bash -c`, which spawns a new process.
+# Bash functions and arrays are NOT inherited — only exported scalars and functions survive.
+# This block runs once on source and makes all device-list helpers subshell-safe.
+# ==============================================================================
+export -f get_hosts get_observers get_nodes get_containers get_vms get_all_devices share_mounted
+for _v in $(compgen -v | grep -E '^(IP_|MAC_|DEVICENAME_|OBSERVER_|MOUNT_|FILE_CONTAINER_|FILE_VM_)'); do
+    export "$_v"
+done; unset _v
