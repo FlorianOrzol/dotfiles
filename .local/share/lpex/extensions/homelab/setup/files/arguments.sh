@@ -30,7 +30,7 @@ function arguments {
     # --fetch: provide the full mirror path including the remote portion.
     # The mirror root is offered as starting point; the user types the remote path continuation.
     # --fzf is used because the user must actively enter the path (may not exist locally yet).
-    arg_value @fetch --fzf \
+    arg_value @fetch \
         --description "Fetch remote path into local mirror (full mirror path)" \
         --option-cmd "find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null"
 

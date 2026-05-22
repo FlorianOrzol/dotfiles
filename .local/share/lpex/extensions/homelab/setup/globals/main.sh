@@ -1,15 +1,15 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : main.sh
-# @desc_short       : Manages the global homelab variable file (homelab.conf).
-#                     Edit locally, fetch from a device, or push to devices.
+# @desc_short       : Manages homelab.conf and homelab_functions.sh.
+#                     Edit locally, fetch from a device, or push to all devices.
 # ==============================================================================
 
 # ==============================================================================
 # --- Script Internals ---
 # ==============================================================================
-FILE_LOCAL_CONF="${PATH_EXTENSION_DATA}/config.conf"   # local desktop copy of homelab.conf
-FILE_REMOTE_CONF="/opt/homelab/homelab.conf"           # path on all devices
+FILE_REMOTE_CONF="/opt/homelab/homelab.conf"              # path on all devices
+FILE_REMOTE_FUNCTIONS="/opt/homelab/homelab_functions.sh" # path on all devices
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"  # common SSH flags
 
@@ -18,6 +18,13 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"  # common SSH flags
 # @desc_short  : Validates that exactly one action is given, then routes to it.
 # ==============================================================================
 function extension_start {
+    # PATH_EXTENSION_DATA is set by the LPEX auto-loader after main.sh is sourced,
+    # so path-dependent variables must be assigned here, not at file scope.
+    FILE_LOCAL_CONF="${PATH_EXTENSION_DATA}/config.conf"
+    FILE_LOCAL_FUNCTIONS="${PATH_EXTENSION_DATA}/homelab_functions.sh"
+    FILE_OBSERVER_LEADER_HOMELAB_CONF="${PATH_EXTENSION_DATA}/mirror/observer/observer_1/opt/homelab/homelab.conf"
+    FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS="${PATH_EXTENSION_DATA}/mirror/observer/observer_1/opt/homelab/homelab_functions.sh"
+
     local action_count=0
 
     # Count provided action flags — only one is allowed at a time.
@@ -65,7 +72,6 @@ function action_edit {
 # ==============================================================================
 # --- action_fetch ---
 # @desc_short  : Fetches homelab.conf from a device and saves it as local config.conf.
-# @notes       : Overwrites the local file. The device must be a host or observer.
 # ==============================================================================
 function action_fetch {
     local device="$ARG_FETCH"
@@ -77,7 +83,6 @@ function action_fetch {
 
     INFO "Fetching '${FILE_REMOTE_CONF}' from '${device}'..."
 
-    # Direct SSH/tar — pipe remote file content straight into the local destination.
     if ! ssh ${SSH_OPTS} "${user}@${ip}" "cat '${FILE_REMOTE_CONF}'" > "$FILE_LOCAL_CONF"; then
         ERROR "Fetch failed from '${device}'."
         return 1
@@ -88,42 +93,117 @@ function action_fetch {
 
 # ==============================================================================
 # --- action_push ---
-# @desc_short  : Pushes local config.conf to OBSERVER_PRIMARY as homelab.conf.
-# @notes       : Observer distributes further to all devices via systemd path unit.
-#                No device argument — target is always OBSERVER_PRIMARY.
+# @desc_short  : Pushes homelab.conf + homelab_functions.sh to all reachable devices.
+# @notes       : Step 1 — updates the observer_1 leader mirror from local sources.
+#                Step 2 — syncs leader mirror to all other device mirrors (local).
+#                Step 3 — pushes both files to all online devices.
+#                Offline devices are skipped — they pull on next boot.
 # ==============================================================================
 function action_push {
-    # Local file must exist before pushing — cannot push an empty config.
+    # Both local source files must exist.
     if [[ ! -f "$FILE_LOCAL_CONF" ]]; then
         ERROR "Local config not found: ${FILE_LOCAL_CONF}"
         INFO "Run --fetch or --edit first."
         return 1
     fi
-
-    # Push to observer_1 only — observer distributes further automatically.
-    _push_to_device "$OBSERVER_PRIMARY"
-}
-
-# --- _push_to_device ---
-# @desc_short  : Pushes local config.conf to a single device as homelab.conf.
-# @parameter   : $1 | device | Device name (host or observer)
-# ==============================================================================
-function _push_to_device {
-    local device="$1"
-    local ip user
-
-    # Resolve device connection details from config arrays.
-    ip=$(get_device_ip "$device")         || return 1
-    user=$(get_device_ssh_user "$device") || return 1
-
-    INFO "Pushing config.conf → '${device}':${FILE_REMOTE_CONF}..."
-
-    # Pipe local file content to remote destination via sudo (required for /opt/ paths).
-    if ! ssh ${SSH_OPTS} "${user}@${ip}" \
-            "sudo tee '${FILE_REMOTE_CONF}' > /dev/null" < "$FILE_LOCAL_CONF"; then
-        ERROR "Push failed to '${device}'."
+    if [[ ! -f "$FILE_LOCAL_FUNCTIONS" ]]; then
+        ERROR "Local functions file not found: ${FILE_LOCAL_FUNCTIONS}"
         return 1
     fi
 
-    OK "Pushed config.conf → '${device}':${FILE_REMOTE_CONF}"
+    # Step 1: Update the observer_1 leader mirror from local sources.
+    INFO "Updating leader mirror (observer_1)..."
+    cp "$FILE_LOCAL_CONF"      "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      || { ERROR "Failed to update leader mirror (homelab.conf).";      return 1; }
+    cp "$FILE_LOCAL_FUNCTIONS" "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" || { ERROR "Failed to update leader mirror (homelab_functions.sh)."; return 1; }
+
+    # Step 2: Sync both files from leader mirror to all other device mirrors.
+    INFO "Syncing to all device mirrors..."
+    _sync_mirrors
+
+    # Step 3: Push both files to all online devices.
+    local all_observers=() all_hosts=()
+    while IFS= read -r d; do all_observers+=("$d"); done < <(get_observers)  # collect all observers
+    while IFS= read -r d; do all_hosts+=("$d"); done < <(get_hosts)          # collect all hosts
+
+    local pushed=0 skipped=0
+    for device in "${all_observers[@]}" "${all_hosts[@]}"; do
+        if _device_reachable "$device"; then
+            _push_to_device "$device" && (( pushed++ )) || true
+        else
+            WARN "Device '${device}' not reachable — skipping (will pull on next boot)."
+            (( skipped++ ))
+        fi
+    done
+
+    INFO "Push complete: ${pushed} device(s) updated, ${skipped} skipped (offline)."
+}
+
+# --- _sync_mirrors ---
+# @desc_short  : Copies homelab.conf + homelab_functions.sh from leader mirror to all device mirrors.
+# ==============================================================================
+function _sync_mirrors {
+    local observers=() hosts=()
+    while IFS= read -r d; do observers+=("$d"); done < <(get_observers)
+    while IFS= read -r d; do hosts+=("$d"); done < <(get_hosts)
+
+    # Sync to each observer mirror (observer_1 already updated in step 1 — cp is idempotent).
+    for device in "${observers[@]}"; do
+        local mirror_base="${PATH_EXTENSION_DATA}/mirror/observer/${device}/opt/homelab"
+        [[ ! -d "$mirror_base" ]] && continue
+        cp "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      "${mirror_base}/homelab.conf"
+        cp "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" "${mirror_base}/homelab_functions.sh"
+    done
+
+    # Sync to each host mirror.
+    for device in "${hosts[@]}"; do
+        local mirror_base="${PATH_EXTENSION_DATA}/mirror/host/${device}/opt/homelab"
+        [[ ! -d "$mirror_base" ]] && continue
+        cp "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      "${mirror_base}/homelab.conf"
+        cp "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" "${mirror_base}/homelab_functions.sh"
+    done
+}
+
+# --- _device_reachable ---
+# @desc_short  : Returns 0 if the device responds to SSH.
+# @parameter   : $1 | device | Device name
+# ==============================================================================
+function _device_reachable {
+    local device="$1"
+    local ip user
+    ip=$(get_device_ip "$device")         || return 1
+    user=$(get_device_ssh_user "$device") || return 1
+    ssh ${SSH_OPTS} "${user}@${ip}" true 2>/dev/null
+}
+
+# --- _push_to_device ---
+# @desc_short  : Pushes homelab.conf + homelab_functions.sh to a single device.
+# @parameter   : $1 | device | Device name (observer or host)
+# ==============================================================================
+function _push_to_device {
+    local device="$1"
+    local ip user sudo_prefix
+
+    # Resolve device connection details from config.
+    ip=$(get_device_ip "$device")         || return 1
+    user=$(get_device_ssh_user "$device") || return 1
+
+    # Hosts SSH as root (no sudo needed). Observers SSH as fadmin (sudo required).
+    [[ "$user" == "root" ]] && sudo_prefix="" || sudo_prefix="sudo "
+
+    # Push homelab.conf.
+    if ! ssh ${SSH_OPTS} "${user}@${ip}" \
+            "${sudo_prefix}tee '${FILE_REMOTE_CONF}' > /dev/null" < "$FILE_OBSERVER_LEADER_HOMELAB_CONF"; then
+        ERROR "Push of homelab.conf failed to '${device}'."
+        return 1
+    fi
+
+    # Push homelab_functions.sh + ensure executable.
+    if ! ssh ${SSH_OPTS} "${user}@${ip}" \
+            "${sudo_prefix}tee '${FILE_REMOTE_FUNCTIONS}' > /dev/null" < "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS"; then
+        ERROR "Push of homelab_functions.sh failed to '${device}'."
+        return 1
+    fi
+    ssh ${SSH_OPTS} "${user}@${ip}" "${sudo_prefix}chmod +x '${FILE_REMOTE_FUNCTIONS}'" 2>/dev/null || true
+
+    OK "Pushed homelab.conf + homelab_functions.sh → '${device}'"
 }

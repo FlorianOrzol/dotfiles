@@ -32,26 +32,20 @@ function ssh_observer {
 
 # ==============================================================================
 # --- ssh_host ---
-# @desc_short  : Opens an SSH session to a host via ProxyJump through OBSERVER_PRIMARY.
+# @desc_short  : Opens a direct SSH session to a host.
 # @usage       : ssh_host <device>
 # @parameter   : $1 | device | Host name (e.g. host_1)
-# @notes       : Hosts are on the internal network — desktop reaches them only
-#                through the observer as a jump host.
 # ==============================================================================
 function ssh_host {
     local device="$1"
-    local host_ip proxy_ip proxy_user
+    local host_ip
 
     # Resolve host IP from config.
     host_ip=$(get_device_ip "$device") || return 1
 
-    # OBSERVER_PRIMARY is the designated proxy jump host for reaching internal devices.
-    proxy_ip=$(get_device_ip "$OBSERVER_PRIMARY")         || return 1
-    proxy_user=$(get_device_ssh_user "$OBSERVER_PRIMARY") || return 1
-
-    INFO "Connecting to host '${device}' via observer '${OBSERVER_PRIMARY}'..."
-    # ProxyJump: desktop → OBSERVER_PRIMARY → host.
-    ssh ${SSH_OPTS} -J "${proxy_user}@${proxy_ip}" "${SSH_USER_HOST}@${host_ip}"
+    INFO "Connecting to host '${device}' (${SSH_USER_HOST}@${host_ip})..."
+    # Direct SSH — hosts are directly reachable from the desktop.
+    ssh ${SSH_OPTS} "${SSH_USER_HOST}@${host_ip}"
 }
 
 # ==============================================================================

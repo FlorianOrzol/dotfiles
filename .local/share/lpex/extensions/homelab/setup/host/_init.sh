@@ -130,10 +130,11 @@ function _init_scripts {
     fi
 
     # Stream tar archive from mirror root through ProxyJump to host filesystem root.
+    # SSH_USER_HOST is root — no sudo needed (and sudo may not be installed on Proxmox nodes).
     if ! tar -czf - -C "$mirror_path" . \
             | ssh ${SSH_OPTS} -J "${proxy_user}@${proxy_ip}" \
                 "${SSH_USER_HOST}@${host_ip}" \
-                "sudo tar -xzf - -C / --no-same-owner"; then
+                "tar -xzf - -C / --no-same-owner"; then
         ERROR "[${device}] Script deployment failed."
         return 1
     fi
@@ -153,7 +154,7 @@ function _init_node_name {
     INFO "[${device}] Step 4/6 — Writing node name..."
 
     # Write the logical name so on-device scripts can resolve their own identity.
-    execute_on_device "$device" "echo '${device}' > /opt/homelab/state/node_name"
+    execute_on_device "$device" "echo '${device}' > /opt/homelab/node_name"
 }
 
 # ==============================================================================
@@ -180,9 +181,13 @@ function _init_conf {
     ip=$(get_device_ip "$device")         || return 1
     user=$(get_device_ssh_user "$device") || return 1
 
-    # Pipe local config into remote file via sudo tee (required for /opt/ write access).
+    # Root SSH users (hosts) do not need sudo — observers (fadmin) do.
+    local sudo_prefix
+    [[ "$user" == "root" ]] && sudo_prefix="" || sudo_prefix="sudo "
+
+    # Pipe local config into remote file via tee (sudo only needed for non-root users).
     if ! ssh ${SSH_OPTS} "${user}@${ip}" \
-            "sudo tee '/opt/homelab/homelab.conf' > /dev/null" < "$conf_local"; then
+            "${sudo_prefix}tee '/opt/homelab/homelab.conf' > /dev/null" < "$conf_local"; then
         ERROR "[${device}] homelab.conf deployment failed."
         return 1
     fi

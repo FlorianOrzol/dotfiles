@@ -78,16 +78,19 @@ function action_push {
 # ==============================================================================
 function _push_node {
     local device="$1" local_path="$2" remote_dir="$3"
-    local ip user
+    local ip user sudo_prefix
 
     # Resolve device to IP and SSH user from config.
     ip=$(get_device_ip "$device")         || return 1
     user=$(get_device_ssh_user "$device") || return 1
 
+    # Root SSH users (hosts) do not need sudo — observers (fadmin) do.
+    [[ "$user" == "root" ]] && sudo_prefix="" || sudo_prefix="sudo "
+
     # Pack from parent dir so archive contains only the basename (file or dir).
     tar -czf - -C "$(dirname "$local_path")" "$(basename "$local_path")" \
         | ssh ${SSH_OPTS} "${user}@${ip}" \
-            "sudo mkdir -p '${remote_dir}' && sudo tar -xzf - -C '${remote_dir}' --no-same-owner"
+            "${sudo_prefix}mkdir -p '${remote_dir}' && ${sudo_prefix}tar -xzf - -C '${remote_dir}' --no-same-owner"
 }
 
 # --- _push_container ---
@@ -158,10 +161,11 @@ function _push_chmod {
 function _push_generate_units {
     local type="$1" device="$2"
 
-    # Route to the correct execute helper — containers run without sudo (already root).
+    # Hosts SSH as root — no sudo needed. Observers SSH as fadmin — sudo required.
     case "$type" in
-        observer|host) execute_on_device    "$device" "sudo /opt/homelab/systemd/generate-units.sh" ;;
-        container)     execute_on_container "$device" "/opt/homelab/systemd/generate-units.sh" ;;
-        vm)            execute_on_vm        "$device" "/opt/homelab/systemd/generate-units.sh" ;;
+        host)      execute_on_device    "$device" "/opt/homelab/systemd/generate-units.sh" ;;
+        observer)  execute_on_device    "$device" "sudo /opt/homelab/systemd/generate-units.sh" ;;
+        container) execute_on_container "$device" "/opt/homelab/systemd/generate-units.sh" ;;
+        vm)        execute_on_vm        "$device" "/opt/homelab/systemd/generate-units.sh" ;;
     esac
 }
