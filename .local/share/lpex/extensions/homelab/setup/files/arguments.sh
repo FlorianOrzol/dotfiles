@@ -21,24 +21,50 @@
 function arguments {
     # 1. --- Actions --------------------------------------------------------
 
-    # --goto: select an existing mirror base directory (mirror/<type>/<device>).
-    # No --fzf — selection from completion list is sufficient.
+    # --goto: select an existing mirror base directory.
+    # Covers depth-2 devices (host, observer) and depth-3 client devices (client/ct, client/vm).
     arg_value @goto \
         --description "Open device mirror directory in terminal" \
-        --option-cmd "find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null"
+        --option-cmd "
+            { find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
+                | grep -v '/client$';
+              find '${PATH_EXTENSION_DATA}/mirror/client' -mindepth 2 -maxdepth 2 -type d 2>/dev/null; } \
+            | sort"
 
     # --fetch: provide the full mirror path including the remote portion.
-    # The mirror root is offered as starting point; the user types the remote path continuation.
-    # --fzf is used because the user must actively enter the path (may not exist locally yet).
+    # Covers depth-2 devices (host, observer) and depth-3 client devices (client/ct, client/vm).
     arg_value @fetch \
         --description "Fetch remote path into local mirror (full mirror path)" \
-        --option-cmd "find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null"
+        --option-cmd "
+            { find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
+                | grep -v '/client$';
+              find '${PATH_EXTENSION_DATA}/mirror/client' -mindepth 2 -maxdepth 2 -type d 2>/dev/null; } \
+            | sort"
 
-    # --push: select one or more existing local mirror paths.
-    # --multi allows pushing several files/directories at once.
+    # --push: takes a device name — mirror path is assembled internally from type + name.
+    # Completion format: host_1, observer_1, ct_3040, vm_101 (type prefix for clients).
+    # --multi allows pushing several devices at once.
     arg_value @push --multi \
-        --description "Push local mirror file/directory to device" \
-        --option-cmd "find '${PATH_EXTENSION_DATA}/mirror' -mindepth 3 2>/dev/null"
+        --description "Push whole device mirror to device (by device name)" \
+        --option-cmd "
+            { find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
+                | grep -v '/client$' \
+                | while IFS= read -r d; do
+                    type=\$(basename \"\$(dirname \"\$d\")\")
+                    name=\$(basename \"\$d\")
+                    case \"\$type\" in
+                        host|observer) echo \"\$name\" ;;
+                        container)     echo \"container_\$name\" ;;
+                        vm)            echo \"vm_\$name\" ;;
+                    esac
+                  done;
+              find '${PATH_EXTENSION_DATA}/mirror/client' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
+                | while IFS= read -r d; do
+                    subtype=\$(basename \"\$(dirname \"\$d\")\")
+                    name=\$(basename \"\$d\")
+                    echo \"\${subtype}_\${name}\"  # ct_3040, vm_101
+                  done; } \
+            | sort"
 
     # --delete: select one or more existing local mirror paths.
     # --multi allows deleting several paths in one call.

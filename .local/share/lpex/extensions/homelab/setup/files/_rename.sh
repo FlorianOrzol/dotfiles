@@ -46,7 +46,10 @@ function action_rename {
     local new_remote_path="${remote_dir}/${new_name}"
 
     # Build the new local mirror path by replacing the basename under the same mirror directory.
-    local mirror_base="${PATH_EXTENSION_DATA}/mirror/${type}/${device}"
+    # Client types (ct, vm) live under client/ — get_client_mirror_dir resolves the correct subdir
+    local mirror_type_dir
+    mirror_type_dir=$(get_client_mirror_dir "$type")
+    local mirror_base="${PATH_EXTENSION_DATA}/mirror/${mirror_type_dir}/${device}"
     local new_local_path="${mirror_base}${new_remote_path}"
 
     INFO "Renaming '${remote_path}' → '${new_remote_path}' on ${type} '${device}'..."
@@ -75,7 +78,7 @@ function _rename_on_device {
     # Route to the correct execute helper based on device type.
     case "$type" in
         observer|host) execute_on_device    "$device" "mv '${old_path}' '${new_path}'" ;;
-        container)     execute_on_container "$device" "mv '${old_path}' '${new_path}'" ;;
+        ct|container)  execute_on_container "$device" "mv '${old_path}' '${new_path}'" ;;
         vm)            execute_on_vm        "$device" "mv '${old_path}' '${new_path}'" ;;
         # Unknown type indicates a path outside the mirror hierarchy.
         *)             ERROR "Unknown device type: '${type}'"; return 1 ;;

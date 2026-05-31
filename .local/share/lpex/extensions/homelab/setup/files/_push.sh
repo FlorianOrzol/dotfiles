@@ -34,9 +34,17 @@ function action_push {
     parse_mirror_path "$local_path" type device remote_path
 
     # Abort if the path is outside the expected mirror structure.
-    if [[ -z "$type" || -z "$device" || "$remote_path" == "/" ]]; then
+    if [[ -z "$type" || -z "$device" ]]; then
         ERROR "Cannot derive device from path: ${local_path}"
         return 1
+    fi
+
+    # Device root push: push all top-level entries of the mirror to the device.
+    if [[ "$remote_path" == "/" ]]; then
+        INFO "Pushing entire device mirror '${local_path}' → ${type} '${device}':/ ..."
+        _push_device_root "$type" "$device" "$local_path" || return 1
+        OK "Pushed entire device mirror → ${type} '${device}':/"
+        return 0
     fi
 
     # Remote directory is the parent of the remote path — must exist before extraction.
@@ -47,11 +55,11 @@ function action_push {
 
     # Route to the correct push helper based on device type.
     case "$type" in
-        observer|host) _push_node      "$device" "$local_path" "$remote_dir" ;;
-        container)     _push_container "$device" "$local_path" "$remote_dir" ;;
-        vm)            _push_vm        "$device" "$local_path" "$remote_dir" ;;
+        observer|host)   _push_node      "$device" "$local_path" "$remote_dir" ;;
+        ct|container)    _push_container "$device" "$local_path" "$remote_dir" ;;  # ct = pct push via host
+        vm)              _push_vm        "$device" "$local_path" "$remote_dir" ;;
         # Unknown type indicates a path outside the mirror hierarchy.
-        *)             ERROR "Unknown device type '${type}' in path: ${local_path}"; return 1 ;;
+        *)               ERROR "Unknown device type '${type}' in path: ${local_path}"; return 1 ;;
     esac || return 1
 
     # Shell scripts must be executable on the device — set +x after push.
@@ -67,6 +75,33 @@ function action_push {
     fi
 
     OK "Pushed '${local_path}' → ${type} '${device}':${remote_path}"
+}
+
+# --- _push_device_root ---
+# @desc_short  : Pushes all top-level entries of a device mirror to the device.
+#                Iterates each immediate child and delegates to action_push.
+#                Triggers generate-units.sh once at the end if any systemd template was pushed.
+# ==============================================================================
+function _push_device_root {
+    local type="$1" device="$2" local_root="$3"
+    local any_error=0 has_systemd=0
+
+    for entry in "$local_root"/*/; do
+        entry="${entry%/}"
+        [[ -e "$entry" ]] || continue
+        action_push "$entry" || any_error=1
+        # Track whether any systemd directory was included
+        [[ -d "$entry/systemd" ]] && has_systemd=1
+    done
+
+    # Trigger generate-units.sh once after all pushes if systemd templates are present
+    if (( has_systemd )); then
+        INFO "Systemd templates present — triggering generate-units.sh on ${device}..."
+        _push_generate_units "$type" "$device"  # type determines which execute helper to use
+    fi
+
+    (( any_error )) && return 1
+    return 0
 }
 
 # --- _push_node ---
@@ -150,7 +185,7 @@ function _push_chmod {
     # Route chmod to the correct execute helper based on device type.
     case "$type" in
         observer|host) execute_on_device    "$device" "chmod +x '${path}'" ;;
-        container)     execute_on_container "$device" "chmod +x '${path}'" ;;
+        ct|container)  execute_on_container "$device" "chmod +x '${path}'" ;;
         vm)            execute_on_vm        "$device" "chmod +x '${path}'" ;;
     esac
 }
@@ -163,9 +198,9 @@ function _push_generate_units {
 
     # Hosts SSH as root — no sudo needed. Observers SSH as fadmin — sudo required.
     case "$type" in
-        host)      execute_on_device    "$device" "/opt/homelab/systemd/generate-units.sh" ;;
-        observer)  execute_on_device    "$device" "sudo /opt/homelab/systemd/generate-units.sh" ;;
-        container) execute_on_container "$device" "/opt/homelab/systemd/generate-units.sh" ;;
-        vm)        execute_on_vm        "$device" "/opt/homelab/systemd/generate-units.sh" ;;
+        host)         execute_on_device    "$device" "/opt/homelab/systemd/generate-units.sh" ;;
+        observer)     execute_on_device    "$device" "sudo /opt/homelab/systemd/generate-units.sh" ;;
+        ct|container) execute_on_container "$device" "/opt/homelab/systemd/generate-units.sh" ;;
+        vm)           execute_on_vm        "$device" "/opt/homelab/systemd/generate-units.sh" ;;
     esac
 }

@@ -41,7 +41,7 @@ function action_fetch {
     # Route to the correct fetch helper based on device type.
     case "$type" in
         observer|host) _fetch_node      "$device" "$remote_path" "$local_dir" ;;
-        container)     _fetch_container "$device" "$remote_path" "$local_dir" ;;
+        ct|container)  _fetch_container "$device" "$remote_path" "$local_dir" ;;  # ct = pct exec via host
         vm)            _fetch_vm        "$device" "$remote_path" "$local_dir" ;;
         # Unknown type indicates a path outside the mirror hierarchy.
         *)             ERROR "Unknown device type '${type}' in path: ${local_path}"; return 1 ;;

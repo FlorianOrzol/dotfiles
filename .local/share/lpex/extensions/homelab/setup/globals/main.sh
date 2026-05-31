@@ -122,8 +122,8 @@ function action_push {
 
     # Step 3: Push both files to all online devices.
     local all_observers=() all_hosts=()
-    while IFS= read -r d; do all_observers+=("$d"); done < <(get_observers)  # collect all observers
-    while IFS= read -r d; do all_hosts+=("$d"); done < <(get_hosts)          # collect all hosts
+    while IFS= read -r d; do all_observers+=("${d%% #*}"); done < <(get_observers)  # strip FZF comment, keep name only
+    while IFS= read -r d; do all_hosts+=("${d%% #*}"); done < <(get_hosts)          # strip FZF comment, keep name only
 
     local pushed=0 skipped=0
     for device in "${all_observers[@]}" "${all_hosts[@]}"; do
@@ -143,11 +143,12 @@ function action_push {
 # ==============================================================================
 function _sync_mirrors {
     local observers=() hosts=()
-    while IFS= read -r d; do observers+=("$d"); done < <(get_observers)
-    while IFS= read -r d; do hosts+=("$d"); done < <(get_hosts)
+    while IFS= read -r d; do observers+=("${d%% #*}"); done < <(get_observers)  # strip FZF comment, keep name only
+    while IFS= read -r d; do hosts+=("${d%% #*}"); done < <(get_hosts)          # strip FZF comment, keep name only
 
-    # Sync to each observer mirror (observer_1 already updated in step 1 — cp is idempotent).
+    # Sync to each observer mirror — skip observer_1 (already the leader source, updated in step 1).
     for device in "${observers[@]}"; do
+        [[ "$device" == "$OBSERVER_PRIMARY" ]] && continue
         local mirror_base="${PATH_EXTENSION_DATA}/mirror/observer/${device}/opt/homelab"
         [[ ! -d "$mirror_base" ]] && continue
         cp "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      "${mirror_base}/homelab.conf"

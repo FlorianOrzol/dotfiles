@@ -52,7 +52,7 @@ function _delete_on_device {
     # Route to the correct execute helper based on device type.
     case "$type" in
         observer|host) execute_on_device    "$device" "rm -rf '${path}'" ;;
-        container)     execute_on_container "$device" "rm -rf '${path}'" ;;
+        ct|container)  execute_on_container "$device" "rm -rf '${path}'" ;;
         vm)            execute_on_vm        "$device" "rm -rf '${path}'" ;;
         # Unknown type indicates a path outside the mirror hierarchy.
         *)             ERROR "Unknown device type: '${type}'"; return 1 ;;

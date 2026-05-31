@@ -29,7 +29,7 @@ function action_maintenance {
 # ==============================================================================
 function action_activate {
     local device="$1"
-    local state_file="${PATH_SHARE_STATE}/container_${device}/ha_override.json"
+    local state_file="${PATH_SHARE_STATE}/clients/${device}/ha_override.json"     # path the HA watcher reads
 
     if [[ ! -f "$state_file" ]]; then                                            # guard: nothing to clear
         WARN "No HA override found for container '${device}' — nothing to clear."

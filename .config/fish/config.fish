@@ -43,6 +43,10 @@ abbr -a ...... '../../../../..'
 # my personal abbreviations and aliases
 abbr -a e 'lpex'
 
+# man pages for linux with bat
+abbr -a man 'batman'
+abbr -a _man 'man'
+
 # Define common abbreviations and aliases for frequently used commands
 # 'l' (list): Abbreviation for 'exa' with default options for listing files.
 abbr -a l '_eza'
