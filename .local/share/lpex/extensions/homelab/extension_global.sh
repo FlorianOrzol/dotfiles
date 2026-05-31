@@ -231,13 +231,16 @@ function find_container_host {
     local container_id="$1"
     local ip user
 
-    # Query each host via SSH — return the first one that lists the container ID
+    # Query each host via direct SSH — lx cmd --run does not reliably propagate exit codes
     for host in "${HOSTS[@]}"; do
-        ip=$(get_device_ip "$host")       || continue
+        ip=$(get_device_ip "$host")         || continue
         user=$(get_device_ssh_user "$host") || continue
 
-        if lx cmd --run "ssh ${user}@${ip} 'pct list 2>/dev/null | awk \"NR>1{print \$1}\" | grep -qx ${container_id}'" \
-                --quiet --no-error-msg; then
+        # pct list shows all containers regardless of state — grep -qx matches the exact ID
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+                "${user}@${ip}" \
+                "pct list 2>/dev/null | awk 'NR>1{print \$1}' | grep -qx ${container_id}" \
+                2>/dev/null; then
             echo "$host"
             return 0
         fi
@@ -256,13 +259,16 @@ function find_vm_host {
     local vm_id="$1"
     local ip user
 
-    # Query each host via SSH — return the first one that lists the VM ID
+    # Query each host via direct SSH — lx cmd --run does not reliably propagate exit codes
     for host in "${HOSTS[@]}"; do
-        ip=$(get_device_ip "$host")       || continue
+        ip=$(get_device_ip "$host")         || continue
         user=$(get_device_ssh_user "$host") || continue
 
-        if lx cmd --run "ssh ${user}@${ip} 'qm list 2>/dev/null | awk \"NR>1{print \$1}\" | grep -qx ${vm_id}'" \
-                --quiet --no-error-msg; then
+        # qm list shows all VMs regardless of state — grep -qx matches the exact ID
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+                "${user}@${ip}" \
+                "qm list 2>/dev/null | awk 'NR>1{print \$1}' | grep -qx ${vm_id}" \
+                2>/dev/null; then
             echo "$host"
             return 0
         fi
