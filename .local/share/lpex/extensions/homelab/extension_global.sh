@@ -351,12 +351,73 @@ function execute_on_vm {
 }
 
 # ==============================================================================
+# --- _fetch_list_dir ---
+# @desc_short  : Lists files and directories inside a given path on a remote device.
+#                Used by the --file option-cmd in files/fetch/arguments.sh.
+#                One SSH call per FZF open — results are filtered locally by FZF.
+# @usage       : _fetch_list_dir <device> <path>
+# @parameter   : $1 | device | Device name with type prefix (host_1, ct_3040, vm_101)
+# @parameter   : $2 | path   | Base directory to list on the device (e.g. /opt/homelab)
+# ==============================================================================
+function _fetch_list_dir {
+    local device="$1"
+    local path="${2:-/}"
+    local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"
+
+    # Nothing to list without a device — return empty gracefully.
+    [[ -z "$device" ]] && return 0
+
+    # Recursive find — all files and directories under path, sorted for FZF.
+    local find_cmd="find '${path}' 2>/dev/null | sort"
+
+    case "$device" in
+        ct_*)
+            local container_id="${device#ct_}"
+            local host ip user
+
+            # Locate the host running this container to route pct exec through it.
+            host=$(find_container_host "$container_id") || return 0
+            ip=$(get_device_ip "$host")                  || return 0
+            user=$(get_device_ssh_user "$host")          || return 0
+
+            # pct exec runs find inside the container — output streams through SSH to local FZF.
+            ssh ${ssh_opts} "${user}@${ip}" \
+                "pct exec ${container_id} -- find '${path}' 2>/dev/null" \
+                2>/dev/null | sort
+            ;;
+        vm_*)
+            local vm_id="${device#vm_}"
+            local host host_ip host_user vm_ip
+
+            # Resolve host and VM connection details for ProxyJump.
+            host=$(find_vm_host "$vm_id")           || return 0
+            host_ip=$(get_device_ip "$host")         || return 0
+            host_user=$(get_device_ssh_user "$host") || return 0
+            vm_ip=$(get_vm_ip "$vm_id")             || return 0
+
+            # ProxyJump through host to VM — stream find output to local FZF.
+            ssh ${ssh_opts} -J "${host_user}@${host_ip}" "root@${vm_ip}" \
+                "${find_cmd}" 2>/dev/null
+            ;;
+        *)
+            local ip user
+
+            # Direct SSH for hosts and observers.
+            ip=$(get_device_ip "$device")         || return 0
+            user=$(get_device_ssh_user "$device") || return 0
+
+            ssh ${ssh_opts} "${user}@${ip}" "${find_cmd}" 2>/dev/null
+            ;;
+    esac
+}
+
+# ==============================================================================
 # --- Export block ---
 # argument_completions.sh runs --option-cmd via `bash -c`, which spawns a new process.
 # Bash functions and arrays are NOT inherited — only exported scalars and functions survive.
 # This block runs once on source and makes all device-list helpers subshell-safe.
 # ==============================================================================
-export -f get_hosts get_observers get_nodes get_containers get_vms get_all_devices share_mounted
+export -f get_hosts get_observers get_nodes get_containers get_vms get_all_devices share_mounted _fetch_list_dir
 for _v in $(compgen -v | grep -E '^(IP_|MAC_|DEVICENAME_|OBSERVER_|MOUNT_|FILE_CONTAINER_|FILE_VM_)'); do
     export "$_v"
 done; unset _v

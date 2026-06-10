@@ -1,0 +1,2 @@
+Fetch a file or directory from a device into the local mirror.
+Select device interactively; remote path is browsed via SSH using FZF.

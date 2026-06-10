@@ -66,12 +66,20 @@ handle_extension() {
 
         ## PDF
         pdf)
-            ## Preview as text conversion
+            local tmp_dir
+            tmp_dir="$(mktemp -d)"
+            if pdftoppm -scale-to-x 1920 -scale-to-y -1 \
+                        -jpeg \
+                        -- "${FILE_PATH}" "${tmp_dir}/page"; then
+                readarray -t _pages < <(find "${tmp_dir}" -maxdepth 1 \
+                                             -name 'page-*.jpg' | sort -V)
+                magick "${_pages[@]}" -append "${IMAGE_CACHE_PATH}" \
+                    && rm -rf "${tmp_dir}" \
+                    && exit 6
+            fi
+            rm -rf "${tmp_dir}"
             pdftotext -l 10 -nopgbrk -q -- "${FILE_PATH}" - | \
               fmt -w "${PV_WIDTH}" && exit 5
-            mutool draw -F txt -i -- "${FILE_PATH}" 1-10 | \
-              fmt -w "${PV_WIDTH}" && exit 5
-            exiftool "${FILE_PATH}" && exit 5
             exit 1;;
 
         ## BitTorrent
@@ -140,34 +148,12 @@ handle_image() {
 
         ## Image
         image/*)
-            local orientation
-            orientation="$( identify -format '%[EXIF:Orientation]\n' -- "${FILE_PATH}" )"
-            ## If orientation data is present and the image actually
-            ## needs rotating ("1" means no rotation)...
-            if [[ -n "$orientation" && "$orientation" != 1 ]]; then
-                ## ...auto-rotate the image according to the EXIF data.
-                convert -- "${FILE_PATH}" -auto-orient "${IMAGE_CACHE_PATH}" && exit 6
-            fi
-
-            ## `w3mimgdisplay` will be called for all images (unless overriden
-            ## as above), but might fail for unsupported types.
             exit 7;;
 
         ## Video
          video/*)
-             # Thumbnail
              ffmpegthumbnailer -i "${FILE_PATH}" -o "${IMAGE_CACHE_PATH}" -s 0 && exit 6
              exit 1;;
-
-        ## PDF
-        application/pdf)
-            pdftoppm -f 1 -l 1 \
-                     -scale-to-x "${DEFAULT_SIZE%x*}" \
-                     -scale-to-y -1 \
-                     -singlefile \
-                     -jpeg -tiffcompression jpeg \
-                     -- "${FILE_PATH}" "${IMAGE_CACHE_PATH%.*}" \
-                && exit 6 || exit 1;;
 
 
         ## ePub, MOBI, FB2 (using Calibre)
@@ -193,13 +179,11 @@ handle_image() {
                          --text "  The quick brown fox jumps over the lazy dog.  " \
                          "${FILE_PATH}";
             then
-                convert -- "${preview_png}" "${IMAGE_CACHE_PATH}" \
-                    && rm "${preview_png}" \
-                    && exit 6
-            else
-                exit 1
+                chafa --colors 256 --size "${PV_WIDTH}x${PV_HEIGHT}" -- "${preview_png}" \
+                    && rm -f "${preview_png}" && exit 5
+                rm -f "${preview_png}"
             fi
-            ;;
+            exit 1;;
 
         ## Preview archives using the first image inside.
         ## (Very useful for comic book collections for example.)
