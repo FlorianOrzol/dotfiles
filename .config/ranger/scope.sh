@@ -66,18 +66,10 @@ handle_extension() {
 
         ## PDF
         pdf)
-            local tmp_dir
-            tmp_dir="$(mktemp -d)"
-            if pdftoppm -scale-to-x 1920 -scale-to-y -1 \
-                        -jpeg \
-                        -- "${FILE_PATH}" "${tmp_dir}/page"; then
-                readarray -t _pages < <(find "${tmp_dir}" -maxdepth 1 \
-                                             -name 'page-*.jpg' | sort -V)
-                magick "${_pages[@]}" -append "${IMAGE_CACHE_PATH}" \
-                    && rm -rf "${tmp_dir}" \
-                    && exit 6
-            fi
-            rm -rf "${tmp_dir}"
+            pdftoppm -f 1 -l 1 -scale-to-x 1920 -scale-to-y -1 \
+                     -singlefile -jpeg \
+                     -- "${FILE_PATH}" "${IMAGE_CACHE_PATH%.*}" \
+                && exit 6
             pdftotext -l 10 -nopgbrk -q -- "${FILE_PATH}" - | \
               fmt -w "${PV_WIDTH}" && exit 5
             exit 1;;
