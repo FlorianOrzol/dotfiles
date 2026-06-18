@@ -1,0 +1,3 @@
+Interactive homelab status dashboard (fzf + bat)
+Browse devices, view state files, drill into logs and metrics.
+Usage: lpex homelab status dashboard
