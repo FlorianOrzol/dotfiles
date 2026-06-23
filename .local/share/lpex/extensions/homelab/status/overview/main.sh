@@ -16,8 +16,8 @@ function extension_start {
 	SUBSECTION_WIDTH=130
     _status_check_mount || return 1
 
-    # Fetch HA container IDs once via SSH — all views that need HA data share this result
-    _status_fetch_ha_ids || WARN "Could not fetch HA container IDs from leader — HA section may be incomplete"
+    # Read HA container IDs from NFS share (written by observer on change) — no SSH needed
+    _status_fetch_ha_ids || WARN "ha_clients not yet on share — deploy observer or run obs-ha-clients-watch manually"
 
     # Route to the selected view; default to compact one-pager
     if (( ARG_DETAIL )); then

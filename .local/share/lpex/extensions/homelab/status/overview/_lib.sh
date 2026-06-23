@@ -45,37 +45,29 @@ function _status_check_mount {
 }
 
 # --- _status_fetch_ha_ids ---
-# @desc_short       : Fetches HA-managed container IDs from the leader host via SSH.
+# @desc_short       : Reads HA-managed container IDs from the NFS share (written by observer).
 # @usage            : _status_fetch_ha_ids || WARN "..."
-# @notes            : Parses /etc/pve/ha/resources.cfg — reads 'ct <id>:' entries.
-#                     Populates the global HA_CONTAINER_IDS array.
-#                     Called once at startup so the connection cost is paid only once.
+# @notes            : Reads ${PATH_STATE}/ha_clients — one CT ID per line.
+#                     The active observer syncs this file from its local state on change.
+#                     No SSH required.
 # ================================================================================
 function _status_fetch_ha_ids {
-    local leader_name leader_ip ssh_user ha_raw line
+    local file_ha_clients="${PATH_STATE}/ha_clients"
+    local line
 
-    # Use the first configured host as the HA leader
-    leader_name=$(get_hosts | awk '{print $1}' | head -1)
-    [[ -z "${leader_name}" ]] && return 1
+    # Fail if the observer has not yet synced the file to the share
+    if [[ ! -f "${file_ha_clients}" ]]; then
+        return 1
+    fi
 
-    # Resolve the leader's IP and SSH user from config
-    leader_ip=$(get_device_ip "${leader_name}")          || return 1
-    ssh_user=$(get_device_ssh_user "${leader_name}")     || return 1
-
-    # Single SSH call to fetch the HA resource config; BatchMode prevents hanging on prompts
-    ha_raw=$(ssh -o BatchMode=yes -o ConnectTimeout=5 \
-        "${ssh_user}@${leader_ip}" \
-        "cat /etc/pve/ha/resources.cfg 2>/dev/null") || return 1
-
-    # Reset and repopulate the global array from the fetched config
+    # Reset and repopulate global array from the NFS copy
     HA_CONTAINER_IDS=()
 
-    # Parse lines matching "ct <id>:" — extract the numeric container ID
-    while IFS= read -r line; do
-        if [[ "${line}" =~ ^ct[[:space:]]+([0-9]+): ]]; then
-            HA_CONTAINER_IDS+=("${BASH_REMATCH[1]}")
-        fi
-    done <<< "${ha_raw}"
+    # One CT ID per line — skip blank lines
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -z "${line}" ]] && continue
+        HA_CONTAINER_IDS+=("${line}")
+    done < "${file_ha_clients}"
 }
 
 # --- _status_format_duration ---
@@ -93,6 +85,25 @@ function _status_format_duration {
     if   (( days > 0 ));  then printf "%dd %dh %dm" "$days"  "$hours" "$mins"
     elif (( hours > 0 )); then printf "%dh %dm"     "$hours" "$mins"
     else                       printf "%dm"          "$mins"
+    fi
+}
+
+
+# --- _status_format_duration_compact ---
+# @desc_short       : Returns only the single largest unit (e.g. "183d", "13h", "5m").
+# @usage            : _status_format_duration_compact <seconds>
+# @parameter        : $1 | seconds | Elapsed seconds as integer.
+# ================================================================================
+function _status_format_duration_compact {
+    local total_seconds="$1"
+    local days=$(( total_seconds / 86400 ))
+    local hours=$(( (total_seconds % 86400) / 3600 ))
+    local mins=$(( (total_seconds % 3600) / 60 ))
+
+    # Emit only the largest non-zero unit — keeps column width predictable
+    if   (( days > 0 ));  then printf "%dd"  "$days"
+    elif (( hours > 0 )); then printf "%dh"  "$hours"
+    else                       printf "%dm"  "$mins"
     fi
 }
 
