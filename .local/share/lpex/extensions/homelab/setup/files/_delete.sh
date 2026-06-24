@@ -8,18 +8,25 @@
 # ==============================================================================
 # --- action_delete ---
 # @desc_short  : Deletes a single file or directory on the device and in the local mirror.
-#                The device type, device name, and remote path are derived from the
-#                provided local mirror path. Remote delete must succeed before the
-#                local mirror is touched. Iteration over multiple paths is done in main.sh.
-# @usage       : action_delete <local_path>
+#                The device type and remote path are derived from the mirror path.
+#                For unified types (host, observer), the device must be supplied explicitly
+#                via $2 because it is not encoded in the path.
+#                Remote delete must succeed before the local mirror is touched.
+#                Iteration over multiple paths is done in main.sh.
+# @usage       : action_delete <local_path> <device>
 # @parameter   : $1 | local_path | Full local mirror path of the entry to delete
+# @parameter   : $2 | device     | Target device name (required for unified mirror types)
 # ==============================================================================
 function action_delete {
     local local_path="$1"
+    local explicit_device="${2:-}"
     local type device remote_path
 
     # Derive device type, name, and remote path from the mirror path structure.
     parse_mirror_path "$local_path" type device remote_path
+
+    # For unified mirror types the path does not encode a device — use the explicit parameter.
+    [[ -z "$device" && -n "$explicit_device" ]] && device="$explicit_device"
 
     # Abort if the path is outside the expected mirror structure.
     if [[ -z "$type" || -z "$device" || "$remote_path" == "/" ]]; then

@@ -118,7 +118,8 @@ function _init_dirs {
 # ==============================================================================
 function _init_scripts {
     local device="$1" host_ip="$2" proxy_ip="$3" proxy_user="$4"
-    local mirror_path="${PATH_EXTENSION_DATA}/mirror/host/${device}"  # local mirror root for this host
+    # Unified host mirror — all hosts share the same scripts, no per-device subdirectory.
+    local mirror_path="${PATH_EXTENSION_DATA}/mirror/host"
 
     INFO "[${device}] Step 3/6 — Deploying scripts from mirror..."
 

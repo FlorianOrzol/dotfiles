@@ -5,6 +5,23 @@
 #                     Sourced explicitly by each submodule's main.sh.
 # ==============================================================================
 
+# Types that share ONE mirror directory across all devices of that type.
+# Per-device types (ct, vm, container) keep individual subdirectories.
+_UNIFIED_MIRROR_TYPES=("host" "observer")
+
+# ==============================================================================
+# --- _is_unified_mirror_type ---
+# @desc_short  : Returns 0 if the type uses a shared mirror dir (no per-device subdir).
+# @usage       : _is_unified_mirror_type <type>
+# ==============================================================================
+function _is_unified_mirror_type {
+    local t
+    for t in "${_UNIFIED_MIRROR_TYPES[@]}"; do
+        [[ "$1" == "$t" ]] && return 0
+    done
+    return 1
+}
+
 # ==============================================================================
 # --- parse_mirror_path ---
 # @desc_short  : Extracts device type, device name, and remote path from a local
@@ -12,9 +29,10 @@
 # @usage       : parse_mirror_path <local_path> <nameref_type> <nameref_device> <nameref_remote>
 # @parameter   : $1 | local_path     | Full local mirror path
 # @parameter   : $2 | nameref_type   | Variable name to receive the device type
-# @parameter   : $3 | nameref_device | Variable name to receive the device name
+# @parameter   : $3 | nameref_device | Variable name to receive the device name (empty for unified types)
 # @parameter   : $4 | nameref_remote | Variable name to receive the remote path
-# @notes       : Mirror structure: ${PATH_EXTENSION_DATA}/mirror/<type>/<device>/remote/path
+# @notes       : Unified types (host, observer): mirror/<type>/remote/path — no device subdir.
+#                Per-device types (ct, vm):       mirror/client/<type>/<id>/remote/path.
 #                Returns remote="/" when the path points to the mirror base directory.
 # ==============================================================================
 function parse_mirror_path {
@@ -30,8 +48,7 @@ function parse_mirror_path {
     # First path component is the device type (e.g. "host", "container").
     _pmp_type="${rel%%/*}"
     rel="${rel#"${_pmp_type}"}"
-    # Strip the separator slash between type and device.
-    rel="${rel#/}"
+    rel="${rel#/}"  # strip separator between type and next component
 
     # "client" is a grouping prefix — extract the subtype (ct/vm) as the effective type.
     if [[ "$_pmp_type" == "client" ]]; then
@@ -40,11 +57,21 @@ function parse_mirror_path {
         rel="${rel#/}"
     fi
 
-    # Second path component is the device name or ID.
+    # Unified types have no device subdirectory — the rest of the path IS the remote path.
+    if _is_unified_mirror_type "$_pmp_type"; then
+        _pmp_device=""  # device is not encoded in path; caller must supply it externally
+        if [[ -n "$rel" ]]; then
+            _pmp_remote="/${rel}"
+        else
+            _pmp_remote="/"
+        fi
+        return
+    fi
+
+    # Per-device types: second path component is the device name or ID.
     _pmp_device="${rel%%/*}"
     rel="${rel#"${_pmp_device}"}"
-    # Strip the separator slash between device and the remote path.
-    rel="${rel#/}"
+    rel="${rel#/}"  # strip separator between device and remote path
 
     # Remaining string is the remote path — prepend slash, or use "/" if empty.
     if [[ -n "$rel" ]]; then
@@ -100,7 +127,14 @@ function resolve_device_to_mirror_path {
     local mirror_dir
     mirror_dir=$(get_client_mirror_dir "$type")
 
-    local path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}/${name}"
+    local path
+    if _is_unified_mirror_type "$type"; then
+        # Unified types share one mirror directory — no per-device subdirectory.
+        path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}"
+    else
+        # Per-device types have individual subdirectories keyed by device name/ID.
+        path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}/${name}"
+    fi
 
     # Abort if the mirror directory does not exist — nothing to push.
     if [[ ! -d "$path" ]]; then

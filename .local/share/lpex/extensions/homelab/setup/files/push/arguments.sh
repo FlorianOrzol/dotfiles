@@ -16,17 +16,8 @@ function arguments {
         --description "Target device (e.g. host_1, ct_3040)" \
         --fzf \
         --option-cmd "
-            { find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
-                | grep -v '/client\$' \
-                | while IFS= read -r d; do
-                    type=\$(basename \"\$(dirname \"\$d\")\")
-                    name=\$(basename \"\$d\")
-                    case \"\$type\" in
-                        host|observer) echo \"\$name\" ;;
-                        container)     echo \"container_\$name\" ;;
-                        vm)            echo \"vm_\$name\" ;;
-                    esac
-                  done;
+            { get_hosts    | awk '{print \$1}';
+              get_observers | awk '{print \$1}';
               find '${PATH_EXTENSION_DATA}/mirror/client' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
                 | while IFS= read -r d; do
                     subtype=\$(basename \"\$(dirname \"\$d\")\")

@@ -32,7 +32,7 @@ function _compact_section_devices {
     SUBSECTION "DEVICES"
 
     # Column header row — DIM styling since it is metadata, not content
-    printf ' %b%-7s  %-22s  %-8s  %-3s  %-20s  %-4s  %s%b\n' \
+    printf ' %b%-7s  %-22s  %-8s  %-3s  %-8s  %-4s  %s%b\n' \
         "${FONT_DIM}" \
         "UPDATED" "DEVICE (UP)" "LAST UPG" "UPG" "MSGS" "MEM" "STORE" \
         "${FONT_RESET}"
@@ -65,6 +65,23 @@ function _compact_section_devices {
     if [[ -f "${FILE_OBSERVER_HEARTBEAT}" ]]; then
         _compact_heartbeat_line
     fi
+}
+
+
+function enter_column {
+	local column_len=$1
+	local all only_txt
+
+	while (( "$#" )); do case "$1" in
+		--color=*) all="${1#--color=}";
+		*) all=" $1"; only_txt="$1";; 
+	esac; shift; done
+
+	local txt_len=${#only_txt}
+	local pad_len=$(( column_len - txt_len ))
+	(( pad_len < 0 )) && pad_len=0
+	echo -n "${all}$(printf '%*s' "${pad_len}" '')"
+
 }
 
 # --- _compact_device_row ---
@@ -221,16 +238,24 @@ function _compact_device_row {
             store_label="WARN"; store_color="${FONT_YELLOW}"
         fi
     fi
+	local row_updated="$(printf '%b%-7s%b' "${updated_color}" "${updated_str}" "${FONT_RESET}")"
+	local row_device="$(printf '%b%s%b' "${device_str}")"
+	local row_last_upg="$(printf '%-8s%b' "${last_upg_color}" "${last_upg_str}" "${FONT_RESET}")"
+
+	echo -e "'${device_str}'"
+	echo -e " ${row_updated}  ${row_device}  ${row_last_upg}"
 
     # Print aligned row: UPDATED  DEVICE(UP)  LAST UPG  UPG  MSGS  MEM  STORE
-    printf ' %b%-7s%b  %b  %b%-8s%b  %b%-3s%b  %b  %b%-4s%b  %b%s%b\n' \
-        "${updated_color}"   "${updated_str}"   "${FONT_RESET}" \
-        "${device_str}" \
-        "${last_upg_color}"  "${last_upg_str}"  "${FONT_RESET}" \
-        "${upg_color}"       "${upg_count}"     "${FONT_RESET}" \
-        "${msgs_str}" \
-        "${mem_color}"       "${mem_pct}%"      "${FONT_RESET}" \
-        "${store_color}"     "${store_label}"   "${FONT_RESET}"
+   # printf ' %b%-7s  %-22s  %-8s  %-3s  %-8s  %-4s  %s%b\n' \
+#    printf ' %b%-7s%b  %b%-22s%b  %b\n' \
+#       "${updated_color}"   "${updated_str}"   "${FONT_RESET}" \
+#        "${device_str}" \
+#        "${last_upg_color}"  "${last_upg_str}"  "${FONT_RESET}" \
+#        "${upg_color}"       "${upg_count}"     "${FONT_RESET}" \
+#        "${msgs_str}" \
+#        "${mem_color}"       "${mem_pct}%"      "${FONT_RESET}" \
+#        "${store_color}"     "${store_label}"   "${FONT_RESET}"
+
 }
 
 # --- _compact_heartbeat_line ---

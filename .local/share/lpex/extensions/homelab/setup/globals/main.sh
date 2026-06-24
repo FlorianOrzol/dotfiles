@@ -22,8 +22,9 @@ function extension_start {
     # so path-dependent variables must be assigned here, not at file scope.
     FILE_LOCAL_CONF="${PATH_EXTENSION_DATA}/config.conf"
     FILE_LOCAL_FUNCTIONS="${PATH_EXTENSION_DATA}/homelab_functions.sh"
-    FILE_OBSERVER_LEADER_HOMELAB_CONF="${PATH_EXTENSION_DATA}/mirror/observer/observer_1/opt/homelab/homelab.conf"
-    FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS="${PATH_EXTENSION_DATA}/mirror/observer/observer_1/opt/homelab/homelab_functions.sh"
+    # Source of truth for global config — unified observer mirror, no per-device subdirectory.
+    FILE_OBSERVER_LEADER_HOMELAB_CONF="${PATH_EXTENSION_DATA}/mirror/observer/opt/homelab/homelab.conf"
+    FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS="${PATH_EXTENSION_DATA}/mirror/observer/opt/homelab/homelab_functions.sh"
 
     local action_count=0
 
@@ -94,8 +95,8 @@ function action_fetch {
 # ==============================================================================
 # --- action_push ---
 # @desc_short  : Pushes homelab.conf + homelab_functions.sh to all reachable devices.
-# @notes       : Step 1 — updates the observer_1 leader mirror from local sources.
-#                Step 2 — syncs leader mirror to all other device mirrors (local).
+# @notes       : Step 1 — updates the unified observer mirror from local sources.
+#                Step 2 — syncs observer mirror to host mirror (local copy).
 #                Step 3 — pushes both files to all online devices.
 #                Offline devices are skipped — they pull on next boot.
 # ==============================================================================
@@ -111,8 +112,8 @@ function action_push {
         return 1
     fi
 
-    # Step 1: Update the observer_1 leader mirror from local sources.
-    INFO "Updating leader mirror (observer_1)..."
+    # Step 1: Update the unified observer mirror from local sources.
+    INFO "Updating unified observer mirror..."
     cp "$FILE_LOCAL_CONF"      "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      || { ERROR "Failed to update leader mirror (homelab.conf).";      return 1; }
     cp "$FILE_LOCAL_FUNCTIONS" "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" || { ERROR "Failed to update leader mirror (homelab_functions.sh)."; return 1; }
 
@@ -139,29 +140,16 @@ function action_push {
 }
 
 # --- _sync_mirrors ---
-# @desc_short  : Copies homelab.conf + homelab_functions.sh from leader mirror to all device mirrors.
+# @desc_short  : Copies homelab.conf + homelab_functions.sh from observer mirror to host mirror.
+# @notes       : With unified mirrors there is only one host mirror and one observer mirror.
+#                The observer mirror is the canonical source (updated in step 1 of action_push).
 # ==============================================================================
 function _sync_mirrors {
-    local observers=() hosts=()
-    while IFS= read -r d; do observers+=("${d%% #*}"); done < <(get_observers)  # strip FZF comment, keep name only
-    while IFS= read -r d; do hosts+=("${d%% #*}"); done < <(get_hosts)          # strip FZF comment, keep name only
-
-    # Sync to each observer mirror — skip observer_1 (already the leader source, updated in step 1).
-    for device in "${observers[@]}"; do
-        [[ "$device" == "$OBSERVER_PRIMARY" ]] && continue
-        local mirror_base="${PATH_EXTENSION_DATA}/mirror/observer/${device}/opt/homelab"
-        [[ ! -d "$mirror_base" ]] && continue
-        cp "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      "${mirror_base}/homelab.conf"
-        cp "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" "${mirror_base}/homelab_functions.sh"
-    done
-
-    # Sync to each host mirror.
-    for device in "${hosts[@]}"; do
-        local mirror_base="${PATH_EXTENSION_DATA}/mirror/host/${device}/opt/homelab"
-        [[ ! -d "$mirror_base" ]] && continue
-        cp "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      "${mirror_base}/homelab.conf"
-        cp "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" "${mirror_base}/homelab_functions.sh"
-    done
+    # Sync global config files from unified observer mirror to unified host mirror.
+    local host_mirror="${PATH_EXTENSION_DATA}/mirror/host/opt/homelab"
+    [[ ! -d "$host_mirror" ]] && return 0  # no host mirror yet — skip silently
+    cp "$FILE_OBSERVER_LEADER_HOMELAB_CONF"      "${host_mirror}/homelab.conf"
+    cp "$FILE_OBSERVER_LEADER_HOMELAB_FUNCTIONS" "${host_mirror}/homelab_functions.sh"
 }
 
 # --- _device_reachable ---

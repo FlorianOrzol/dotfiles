@@ -22,6 +22,6 @@ function extension_start {
     # Resolve device name (e.g. ct_3040, host_1) to its local mirror root path.
     resolve_device_to_mirror_path "$ARG_DEVICE" mirror_path || return 1
 
-    # Delegate to the shared push logic which handles all device types.
-    action_push "$mirror_path"
+    # Delegate to the shared push logic — pass device explicitly for unified mirror types.
+    action_push "$mirror_path" "$ARG_DEVICE"
 }

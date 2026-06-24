@@ -12,13 +12,13 @@
 # ==============================================================================
 function arguments {
     # Mirror directory as positional arg — FZF lists all known device mirror roots.
-    # Covers depth-2 devices (host, observer) and depth-3 client devices (client/ct, client/vm).
+    # Unified types (host, observer) are listed directly; client types scan per-device subdirs.
     arg_direct @dir \
         --description "Device mirror directory to open" \
         --fzf \
         --option-cmd "
-            { find '${PATH_EXTENSION_DATA}/mirror' -mindepth 2 -maxdepth 2 -type d 2>/dev/null \
-                | grep -v '/client\$';
+            { echo '${PATH_EXTENSION_DATA}/mirror/host';
+              echo '${PATH_EXTENSION_DATA}/mirror/observer';
               find '${PATH_EXTENSION_DATA}/mirror/client' -mindepth 2 -maxdepth 2 -type d 2>/dev/null; } \
             | sort"
 }

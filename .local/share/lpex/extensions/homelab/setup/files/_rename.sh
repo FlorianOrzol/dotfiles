@@ -8,14 +8,17 @@
 # ==============================================================================
 # --- action_rename ---
 # @desc_short  : Renames a file or directory on the device and in the local mirror.
-#                The device type, device name, and remote path are derived from the
-#                provided local mirror path. Remote rename must succeed before the
-#                local mirror is touched.
-# @usage       : action_rename <local_path>
+#                The device type and remote path are derived from the mirror path.
+#                For unified types (host, observer), the device must be supplied explicitly
+#                via $2 because it is not encoded in the path.
+#                Remote rename must succeed before the local mirror is touched.
+# @usage       : action_rename <local_path> <device>
 # @parameter   : $1 | local_path | Full local mirror path of the entry to rename
+# @parameter   : $2 | device     | Target device name (required for unified mirror types)
 # ==============================================================================
 function action_rename {
     local local_path="$1"
+    local explicit_device="${2:-}"
     local new_name="$ARG_RENAME_TO"
     local type device remote_path
 
@@ -34,6 +37,9 @@ function action_rename {
     # Derive device type, name, and remote path from the mirror path structure.
     parse_mirror_path "$local_path" type device remote_path
 
+    # For unified mirror types the path does not encode a device — use the explicit parameter.
+    [[ -z "$device" && -n "$explicit_device" ]] && device="$explicit_device"
+
     # Abort if the path is outside the expected mirror structure.
     if [[ -z "$type" || -z "$device" || "$remote_path" == "/" ]]; then
         ERROR "Cannot derive device from path: ${local_path}"
@@ -45,11 +51,15 @@ function action_rename {
     remote_dir="$(dirname "$remote_path")"
     local new_remote_path="${remote_dir}/${new_name}"
 
-    # Build the new local mirror path by replacing the basename under the same mirror directory.
-    # Client types (ct, vm) live under client/ — get_client_mirror_dir resolves the correct subdir
+    # Build the new local mirror path — unified types have no device subdirectory.
     local mirror_type_dir
     mirror_type_dir=$(get_client_mirror_dir "$type")
-    local mirror_base="${PATH_EXTENSION_DATA}/mirror/${mirror_type_dir}/${device}"
+    local mirror_base
+    if _is_unified_mirror_type "$type"; then
+        mirror_base="${PATH_EXTENSION_DATA}/mirror/${mirror_type_dir}"  # shared mirror, no device subdir
+    else
+        mirror_base="${PATH_EXTENSION_DATA}/mirror/${mirror_type_dir}/${device}"
+    fi
     local new_local_path="${mirror_base}${new_remote_path}"
 
     INFO "Renaming '${remote_path}' → '${new_remote_path}' on ${type} '${device}'..."

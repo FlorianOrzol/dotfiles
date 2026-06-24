@@ -67,11 +67,12 @@ function extension_start {
     local mirror_dir mirror_path local_dir remote_parent remote_basename
 
     # Map device type to mirror subdirectory.
+    # Unified types (host, observer) share one mirror — no per-device subdirectory.
     case "$type" in
         ct)       mirror_dir="client/ct/${device_id}" ;;
         vm)       mirror_dir="client/vm/${device_id}" ;;
-        host)     mirror_dir="host/${device_id}" ;;
-        observer) mirror_dir="observer/${device_id}" ;;
+        host)     mirror_dir="host" ;;
+        observer) mirror_dir="observer" ;;
     esac
 
     # Build the full local mirror path for the selected remote file.

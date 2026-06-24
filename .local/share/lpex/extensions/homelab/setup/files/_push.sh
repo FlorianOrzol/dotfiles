@@ -13,15 +13,18 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"    # common SSH flag
 # ==============================================================================
 # --- action_push ---
 # @desc_short  : Pushes a local mirror file or directory to the target device.
-#                The device type, device name, and remote path are derived from
-#                the provided local mirror path.
+#                The device type and remote path are derived from the mirror path.
+#                For unified types (host, observer), the device name must be supplied
+#                explicitly via $2 because it is not encoded in the unified mirror path.
 #                For directories: adds new files, overwrites existing — remote-only files untouched.
 #                Ownership on device: root (via sudo). Permissions (+x etc.) preserved from source.
-# @usage       : action_push <local_path>
-# @parameter   : $1 | local_path | Full local mirror path of the file/directory to push
+# @usage       : action_push <local_path> [device]
+# @parameter   : $1 | local_path      | Full local mirror path of the file/directory to push
+# @parameter   : $2 | device_override | Target device name (required for unified mirror types)
 # ==============================================================================
 function action_push {
     local local_path="$1"
+    local device_override="${2:-}"  # explicit device — required when path does not encode it
     local type device remote_path
 
     # Local path must exist before attempting to push.
@@ -32,6 +35,9 @@ function action_push {
 
     # Derive device type, name, and remote path from the mirror path structure.
     parse_mirror_path "$local_path" type device remote_path
+
+    # For unified mirror types the path does not encode a device — use the explicit parameter.
+    [[ -z "$device" && -n "$device_override" ]] && device="$device_override"
 
     # Abort if the path is outside the expected mirror structure.
     if [[ -z "$type" || -z "$device" ]]; then
@@ -89,7 +95,7 @@ function _push_device_root {
     for entry in "$local_root"/*/; do
         entry="${entry%/}"
         [[ -e "$entry" ]] || continue
-        action_push "$entry" || any_error=1
+        action_push "$entry" "$device" || any_error=1  # pass device down — needed for unified mirror types
         # Track whether any systemd directory was included
         [[ -d "$entry/systemd" ]] && has_systemd=1
     done
