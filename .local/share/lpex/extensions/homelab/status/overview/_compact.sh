@@ -32,9 +32,9 @@ function _compact_section_devices {
     SUBSECTION "DEVICES"
 
     # Column header row — DIM styling since it is metadata, not content
-    printf ' %b%-11s  %-14s  %-5s  %-8s  %-3s  %-20s  %-4s  %s%b\n' \
+    printf ' %b%-7s  %-22s  %-8s  %-3s  %-20s  %-4s  %s%b\n' \
         "${FONT_DIM}" \
-        "UPDATED" "DEVICE" "UP" "LAST UPG" "UPG" "MSGS" "MEM" "STORE" \
+        "UPDATED" "DEVICE (UP)" "LAST UPG" "UPG" "MSGS" "MEM" "STORE" \
         "${FONT_RESET}"
 
     # Iterate all configured hosts; auto-detect pending by checking for state directory
@@ -111,26 +111,42 @@ function _compact_device_row {
         mem_pct j_warn j_crit j_emerg j_fail j_oom \
         zfs_state root_pct state_pct <<< "${json_out}"
 
-    # 2. UPDATED — short date-time from the JSON write timestamp
-    local updated_str
-    updated_str=$(date -d "${ts_raw}" "+%m-%d %H:%M")
+    # 2. UPDATED — show as age; green ≤24h, yellow >24h, red >3d
+    local age_seconds
+    age_seconds=$(_status_calc_age_seconds "${ts_raw}")
+    local updated_str updated_color="${FONT_GREEN}"
+    updated_str=$(_status_format_duration_compact "${age_seconds}")
+    (( age_seconds > 86400 ))  && updated_color="${FONT_YELLOW}"
+    (( age_seconds > 259200 )) && updated_color="${FONT_RED}"
 
-    # 3. UP — uptime as single largest unit (183d / 13h / 5m)
+    # 3. DEVICE + UP — merged "host_1 (12d)"; uptime yellow when >50d; pre-padded to visible width 22
     local uptime_str
     uptime_str=$(_status_format_duration_compact "${uptime_s}")
+    local up_color="${FONT_RESET}"
+    (( uptime_s > 50*86400 )) && up_color="${FONT_YELLOW}"
+    local up_part="(${uptime_str})"
+    local device_str device_len
+    device_str="${FONT_BOLD}${hostname}${FONT_RESET} ${up_color}${up_part}${FONT_RESET}"
+    device_len=$(( ${#hostname} + 1 + ${#up_part} ))
+    local device_pad=$(( 22 - device_len ))
+    (( device_pad > 0 )) && device_str+="$(printf '%*s' "${device_pad}" '')"
 
-    # 4. LAST UPG — how long ago the last apt upgrade ran
-    local last_upg_str
+    # 4. LAST UPG — how long ago; ? yellow, yellow >50d, red >180d (~6 months)
+    local last_upg_str last_upg_color="${FONT_RESET}"
     if [[ "${date_last_upgrade}" == "unknown" ]]; then
         last_upg_str="?"
+        last_upg_color="${FONT_YELLOW}"
     else
         local last_upg_epoch
         last_upg_epoch=$(date -d "${date_last_upgrade}" +%s 2>/dev/null)
         if [[ -z "${last_upg_epoch}" ]]; then
             last_upg_str="?"
+            last_upg_color="${FONT_YELLOW}"
         else
             local last_upg_secs=$(( $(date +%s) - last_upg_epoch ))
             last_upg_str=$(_status_format_duration_compact "${last_upg_secs}")
+            (( last_upg_secs > 50*86400 ))  && last_upg_color="${FONT_YELLOW}"
+            (( last_upg_secs > 180*86400 )) && last_upg_color="${FONT_RED}"
         fi
     fi
 
@@ -139,39 +155,44 @@ function _compact_device_row {
     (( upg_count > 0 ))  && upg_color="${FONT_YELLOW}"
     (( upg_count > 50 )) && upg_color="${FONT_RED}"
 
-    # 6. MSGS — journal summary; visible length tracked manually to avoid sed for padding
+    # 6. MSGS — format: W(CE) where W=total warnings 0-4, CE=critical+emergency 0-2 subset
+    #           W yellow (red when CE>0); CE always shown in red even when zero
     local msgs_str="" msgs_len=0
 
-    if (( j_warn == 0 && j_fail == 0 && j_oom == 0 )); then
-        msgs_str="${FONT_DIM}—${FONT_RESET}"
-        msgs_len=1
-    else
-        # Warning count: yellow for any warning, red when critical or emergency also present
+    if (( j_warn > 0 )); then
+        # Total warning count: yellow normally, red when severe entries present
         local w_color="${FONT_YELLOW}"
-        (( j_crit > 0 || j_emerg > 0 )) && w_color="${FONT_RED}"
-        msgs_str+="${w_color}${j_warn}${FONT_RESET}"
-        (( msgs_len += ${#j_warn} ))
-        # Crit/emerg subset in parens: "12(2/1)" = 12 total, 2 critical, 1 emergency
-        if (( j_crit > 0 || j_emerg > 0 )); then
-            local sub="(${j_crit}/${j_emerg})"
-            msgs_str+="${FONT_RED}${sub}${FONT_RESET}"
-            (( msgs_len += ${#sub} ))
-        fi
-        # Failed systemd services — not part of journal; sourced from systemctl --failed
-        if (( j_fail > 0 )); then
-            local fl=" ${j_fail}fl"
-            msgs_str+="${FONT_YELLOW}${fl}${FONT_RESET}"
-            (( msgs_len += ${#fl} ))
-        fi
-        # OOM kills: kernel terminated processes due to memory exhaustion (hosts only)
-        if [[ "${device_type}" == "host" ]] && (( j_oom > 0 )); then
-            local oom=" ${j_oom}oom"
-            msgs_str+="${FONT_RED}${oom}${FONT_RESET}"
-            (( msgs_len += ${#oom} ))
-        fi
+        (( j_crit + j_emerg > 0 )) && w_color="${FONT_RED}"
+        local w_str="${j_warn}"
+        local ce_str="($(( j_crit + j_emerg )))"
+        # Always render W(CE) — parens show severe subset even when zero
+        msgs_str+="${w_color}${w_str}${FONT_RESET}${FONT_RED}${ce_str}${FONT_RESET}"
+        (( msgs_len += ${#w_str} + ${#ce_str} ))
     fi
 
-    # Pad MSGS to fixed visible width so MEM and STORE columns align after it
+    # Failed systemd services — not part of journal; sourced from systemctl --failed
+    if (( j_fail > 0 )); then
+        (( msgs_len > 0 )) && { msgs_str+=" "; (( msgs_len++ )); }
+        local fl_str="${j_fail}fl"
+        msgs_str+="${FONT_YELLOW}${fl_str}${FONT_RESET}"
+        (( msgs_len += ${#fl_str} ))
+    fi
+
+    # OOM kills: kernel terminated processes due to memory exhaustion (hosts only)
+    if [[ "${device_type}" == "host" ]] && (( j_oom > 0 )); then
+        (( msgs_len > 0 )) && { msgs_str+=" "; (( msgs_len++ )); }
+        local oom_str="${j_oom}oom"
+        msgs_str+="${FONT_RED}${oom_str}${FONT_RESET}"
+        (( msgs_len += ${#oom_str} ))
+    fi
+
+    # Show dash when nothing to report
+    if (( msgs_len == 0 )); then
+        msgs_str="${FONT_DIM}—${FONT_RESET}"
+        msgs_len=1
+    fi
+
+    # Pad to fixed visible width so MEM and STORE columns align after it
     local msgs_pad=$(( 20 - msgs_len ))
     (( msgs_pad > 0 )) && msgs_str+="$(printf '%*s' "${msgs_pad}" '')"
 
@@ -201,15 +222,15 @@ function _compact_device_row {
         fi
     fi
 
-    # Print aligned row: UPDATED  DEVICE  UP  LAST UPG  UPG  MSGS  MEM  STORE
-    printf ' %-11s  %b%-14s%b  %-5s  %-8s  %b%-3s%b  %s  %b%-4s%b  %b%s%b\n' \
-        "${updated_str}" \
-        "${FONT_BOLD}"   "${hostname}"      "${FONT_RESET}" \
-        "${uptime_str}"  "${last_upg_str}" \
-        "${upg_color}"   "${upg_count}"    "${FONT_RESET}" \
+    # Print aligned row: UPDATED  DEVICE(UP)  LAST UPG  UPG  MSGS  MEM  STORE
+    printf ' %b%-7s%b  %b  %b%-8s%b  %b%-3s%b  %b  %b%-4s%b  %b%s%b\n' \
+        "${updated_color}"   "${updated_str}"   "${FONT_RESET}" \
+        "${device_str}" \
+        "${last_upg_color}"  "${last_upg_str}"  "${FONT_RESET}" \
+        "${upg_color}"       "${upg_count}"     "${FONT_RESET}" \
         "${msgs_str}" \
-        "${mem_color}"   "${mem_pct}%"     "${FONT_RESET}" \
-        "${store_color}" "${store_label}"  "${FONT_RESET}"
+        "${mem_color}"       "${mem_pct}%"      "${FONT_RESET}" \
+        "${store_color}"     "${store_label}"   "${FONT_RESET}"
 }
 
 # --- _compact_heartbeat_line ---
