@@ -10,7 +10,6 @@
 # ==============================================================================
 # --- Configuration ---
 # ==============================================================================
-: "${MOUNT_POOL_FAST:=/mnt/pool_fast}"          # NFS fast pool mount — overridden by config.conf
 
 THRESHOLD_STALE_SECONDS=28800                   # seconds before state data is considered stale (8h)
 
@@ -18,6 +17,7 @@ THRESHOLD_STALE_SECONDS=28800                   # seconds before state data is c
 # --- Internals ---
 # Derived paths — do not edit.
 # ==============================================================================
+MOUNT_POOL_FAST=/mnt/pool_fast          # NFS fast pool mount — overridden by config.conf
 PATH_MONITORING="${MOUNT_POOL_FAST}/homelab_monitoring" # base NFS monitoring path
 PATH_STATE="${PATH_MONITORING}/state"                   # live state root
 PATH_STATE_HOSTS="${PATH_STATE}/hosts"                  # per-host state directories
@@ -35,12 +35,12 @@ CMD_JQ="/usr/bin/jq"            # jq for JSON field extraction
 # @usage            : _status_check_mount || return 1
 # ================================================================================
 function _status_check_mount {
-    # Fail early if the NFS share is not mounted or the state dir is missing
-    if [[ ! -d "${PATH_STATE}" ]]; then
-        ERROR "Monitoring state not accessible: ${PATH_STATE}"
-        INFO  "Check NFS mount: ${MOUNT_POOL_FAST}"
-        return 1
-    fi
+    local nfs_host="10.0.111.1"
+
+    # Read /proc/mounts without triggering NFS I/O — mountpoint -q does a stat() which blocks
+    grep -q " ${MOUNT_POOL_FAST} " /proc/mounts || EXIT_ERROR "NFS mount '${MOUNT_POOL_FAST}' is not mounted"
+    # TCP check to NFS port — fails instantly if the server is unreachable, no NFS soft-timeout delay
+    timeout 1 bash -c "echo > /dev/tcp/${nfs_host}/2049" 2>/dev/null || EXIT_ERROR "NFS server unreachable: ${nfs_host}"
 }
 
 # --- _status_fetch_ha_ids ---
@@ -55,9 +55,7 @@ function _status_fetch_ha_ids {
     local line
 
     # Fail if the observer has not yet synced the file to the share
-    if [[ ! -f "${file_ha_clients}" ]]; then
-        return 1
-    fi
+    [[ ! -f "${file_ha_clients}" ]] && return 1
 
     # Reset and repopulate global array from the NFS copy
     HA_CONTAINER_IDS=()

@@ -74,7 +74,6 @@ function _compact_section_devices {
     SUBSECTION "DEVICES"
 
     # Print header row — DIM marks it as metadata, not live content
-    printf ' '
     c_UPDATE  --color="${FONT_DIM}" "TIME"
     c_DEVICE  --color="${FONT_DIM}" "DEVICE (UP)"
     c_LASTUPG --color="${FONT_DIM}" "DATE_UPG"

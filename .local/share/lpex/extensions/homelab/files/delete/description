@@ -1,0 +1,2 @@
+Delete a file or directory on a device and remove it from the local mirror.
+Remote deletion must succeed before the local mirror entry is removed.

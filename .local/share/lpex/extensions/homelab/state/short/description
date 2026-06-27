@@ -1,0 +1,3 @@
+Homelab status overview — compact one-pager or detailed view
+Reads all data from NFS share — no SSH required.
+Usage: lpex homelab status overview [--detail]

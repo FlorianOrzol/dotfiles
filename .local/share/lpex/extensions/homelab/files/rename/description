@@ -1,0 +1,2 @@
+Rename a file or directory on a device and in the local mirror.
+Remote rename must succeed before the local mirror entry is renamed.
