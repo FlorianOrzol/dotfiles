@@ -1,0 +1,5 @@
+Update OS packages on homelab devices — hosts, observers, containers and VMs.
+Targets via --devices: groups (all, hosts, observers, clients) and/or single
+devices (host_1, observer_1, ct_3040, vm_101), freely mixed.
+Options: --dry-run (list only), --wake-up (wake/start offline targets via the
+primary observer before updating).

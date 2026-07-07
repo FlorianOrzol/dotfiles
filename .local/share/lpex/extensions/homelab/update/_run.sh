@@ -7,20 +7,20 @@
 # ==============================================================================
 # --- Script Internals ---
 # ==============================================================================
-CMD_DRY_RUN="apt list --upgradable 2>/dev/null | grep -v 'Listing...'"  # lists upgradable packages without modifying the system
+CMD_DRY_RUN="apt list --upgradable 2>/dev/null | grep -v Listing"       # lists upgradable packages; no quotes in pattern — cmd is wrapped in single quotes for SSH
 CMD_UPDATE="/opt/homelab/bin/update/update-os.sh"                       # runs full OS update (apt upgrade)
-CMD_PATCHES="/opt/homelab/bin/update/apply-patches.sh"                  # applies pending patches after OS update
 
 # ==============================================================================
 # --- update_device ---
-# @desc_short  : Runs update (or dry-run) on a single device, optionally applies patches.
+# @desc_short  : Runs update (or dry-run) on a single device.
+# @notes       : Patches (apply-patches.sh) are intentionally not wired here —
+#                they belong to the planned 'setup patches' submodule.
 # @parameter   : $1 | type     | Device type: observer | host | container | vm
 # @parameter   : $2 | device   | Device name or ID
 # @parameter   : $3 | dry_run  | Non-empty = show upgradable packages only, no changes
-# @parameter   : $4 | patches  | Non-empty = also run apply-patches.sh after full update
 # ==============================================================================
 function update_device {
-    local type="$1" device="$2" dry_run="$3" patches="$4"
+    local type="$1" device="$2" dry_run="$3"
     local cmd_update
 
     INFO "[${device}] Starting update..."
@@ -33,21 +33,10 @@ function update_device {
         cmd_update="$CMD_UPDATE"
     fi
 
-    # Abort immediately if the update command fails — do not apply patches on a broken state.
+    # Abort with a clear error if the update command fails.
     if ! _execute_update "$type" "$device" "$cmd_update"; then
         ERROR "[${device}] Update failed."
         return 1
-    fi
-
-    # Patches are only applied after a successful full update.
-    # Dry-run must never trigger patch application.
-    if [[ -n "$patches" && -z "$dry_run" ]]; then
-        INFO "[${device}] Applying patches..."
-        # Abort if patch application fails — partial patch state must be visible to the user.
-        if ! _execute_update "$type" "$device" "$CMD_PATCHES"; then
-            ERROR "[${device}] Patch application failed."
-            return 1
-        fi
     fi
 
     OK "[${device}] Update complete."
@@ -63,8 +52,11 @@ function _execute_update {
     local type="$1" device="$2" cmd="$3"
 
     # Route to the correct helper — containers and VMs require indirection via their host.
+    # Observers SSH as fadmin — apt and the update scripts need sudo there;
+    # hosts SSH as root, containers/VMs execute as root via pct/qm.
     case "$type" in
-        observer|host) execute_on_device    "$device" "$cmd" ;;
+        observer)      execute_on_device    "$device" "sudo ${cmd}" ;;
+        host)          execute_on_device    "$device" "$cmd" ;;
         container)     execute_on_container "$device" "$cmd" ;;
         vm)            execute_on_vm        "$device" "$cmd" ;;
         # Unknown type indicates a bug in the caller — surface it immediately.

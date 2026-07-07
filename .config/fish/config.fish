@@ -71,6 +71,8 @@ abbr -a x 'linux-helper -xd'
 # 'p': Abbreviation for 'keys get -c' to securely get a password from the password manager and copy to clipboard.
 abbr -a p 'keys get -c'
 
+abbr -a hl 'lpex homelab'
+
 set -gx FZF_DEFAULT_COMMAND 'fd --type f --hidden --exclude .git'
 
 # Custom function `lf`: A wrapper around 'fd' that allows searching for files using multiple substrings.

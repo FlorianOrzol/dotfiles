@@ -1,6 +1,6 @@
 {
-  "CopilotChat.nvim": { "branch": "main", "commit": "f22747ae5a4c88b4aa519e4638fe89b274ea28a4" },
-  "copilot.vim": { "branch": "release", "commit": "51f80c0ed4f70d1c7e8c0ff11a792a9d84502c03" },
-  "lazy.nvim": { "branch": "main", "commit": "6c3bda4aca61a13a9c63f1c1d1b16b9d3be90d7a" },
-  "plenary.nvim": { "branch": "master", "commit": "b9fd5226c2f76c951fc8ed5923d85e4de065e509" }
+  "CopilotChat.nvim": { "branch": "main", "commit": "f0c2a23ab79dc295f5e0eef0d8b587a39020c852" },
+  "copilot.vim": { "branch": "release", "commit": "a12fd5672110c8aa7e3c8419e28c96943ca179be" },
+  "lazy.nvim": { "branch": "main", "commit": "306a05526ada86a7b30af95c5cc81ffba93fef97" },
+  "plenary.nvim": { "branch": "master", "commit": "74b06c6c75e4eeb3108ec01852001636d85a932b" }
 }

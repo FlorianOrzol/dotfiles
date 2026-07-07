@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : _common.sh
-# @desc_short       : Shared helpers for all files submodules.
-#                     Sourced explicitly by each submodule's main.sh.
+# @desc_short       : Shared mirror-path helpers for all files actions.
+#                     Sourced unconditionally by files/main.sh.
 # ==============================================================================
 
 # Types that share ONE mirror directory across all devices of that type.
@@ -15,9 +15,12 @@ _UNIFIED_MIRROR_TYPES=("host" "observer")
 # @usage       : _is_unified_mirror_type <type>
 # ==============================================================================
 function _is_unified_mirror_type {
-    local t
-    for t in "${_UNIFIED_MIRROR_TYPES[@]}"; do
-        [[ "$1" == "$t" ]] && return 0
+    local type="$1"
+    local unified_type
+
+    # Compare against every unified type — match means shared mirror directory.
+    for unified_type in "${_UNIFIED_MIRROR_TYPES[@]}"; do
+        [[ "$type" == "$unified_type" ]] && return 0
     done
     return 1
 }
@@ -109,7 +112,7 @@ function get_client_mirror_dir {
 # ==============================================================================
 function resolve_device_to_mirror_path {
     local device_input="$1"
-    local -n return_resolve_device_to_mirror_path="$2"
+    local -n return_resolve_device_to_mirror_path="${2#@}"
     local type name
 
     # Derive type and directory name from the input — ct/vm/container carry an explicit prefix.

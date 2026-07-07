@@ -412,6 +412,74 @@ function _fetch_list_dir {
 }
 
 # ==============================================================================
+# --- observer_log_event ---
+# @desc_short  : Records an event on the primary observer (events.log + daily log)
+#                via obs-log-event.sh — makes LPEX actions (deployments, starts)
+#                visible in the observer's event history.
+# @usage       : observer_log_event <message> [status]
+# @parameter   : $1 | message | Event text (e.g. "LPEX: mirror deployed → host_1")
+# @parameter   : $2 | status  | Optional status label (default: INFO)
+# @notes       : Fire-and-forget — a failed event log must never fail the caller.
+#                Runs as fadmin (no sudo) — root has no SSH key on the observer.
+# ==============================================================================
+function observer_log_event {
+    local message="$1"
+    local status="${2:-INFO}"
+    local ip user
+
+    # Resolve the primary observer — silently skip on config errors.
+    ip=$(get_device_ip "$OBSERVER_PRIMARY" 2>/dev/null)         || return 0
+    user=$(get_device_ssh_user "$OBSERVER_PRIMARY" 2>/dev/null) || return 0
+
+    # Fire-and-forget with short timeout — event logging must not block actions.
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes "${user}@${ip}" \
+        "/opt/homelab/bin/observer/obs-log-event.sh \"${message}\" \"${status}\"" 2>/dev/null || true
+}
+
+# ==============================================================================
+# --- wake_target ---
+# @desc_short  : Ensures a target is online before further actions. Delegates to
+#                obs-wake.sh on OBSERVER_PRIMARY, which handles WOL (hosts),
+#                pct start (containers) and qm start (VMs), blocks until the
+#                target is ready and logs the event on the observer — the observer
+#                authoritatively knows about every externally requested start.
+# @usage       : wake_target <type> <device>
+# @parameter   : $1 | type   | Device type: observer | host | container | vm
+# @parameter   : $2 | device | Device name or ID
+# ==============================================================================
+function wake_target {
+    local type="$1" device="$2"
+    local target ip user
+
+    # Map type/device to the obs-wake.sh target format.
+    case "$type" in
+        # Observers are always-on Pis without WOL — nothing to wake.
+        observer)  return 0 ;;
+        host)      target="$device" ;;
+        container) target="ct_${device}" ;;
+        vm)        target="vm_${device}" ;;
+        # Unknown type indicates a bug in the caller — surface it immediately.
+        *)         ERROR "Unknown device type: '${type}'"; return 1 ;;
+    esac
+
+    # Resolve the primary observer — the single wake authority.
+    ip=$(get_device_ip "$OBSERVER_PRIMARY")         || return 1
+    user=$(get_device_ssh_user "$OBSERVER_PRIMARY") || return 1
+
+    INFO "[${device}] Wake-up via ${OBSERVER_PRIMARY} (obs-wake.sh ${target})..."
+
+    # Direct SSH — lx cmd does not reliably propagate exit codes, and the
+    # observer script blocks until the target is online (WOL boot: minutes).
+    if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes \
+            "${user}@${ip}" "/opt/homelab/bin/observer/obs-wake.sh ${target}"; then
+        ERROR "[${device}] Wake-up failed — see observer logs (events.log / daily log)."
+        return 1
+    fi
+
+    OK "[${device}] Target is online."
+}
+
+# ==============================================================================
 # --- Export block ---
 # argument_completions.sh runs --option-cmd via `bash -c`, which spawns a new process.
 # Bash functions and arrays are NOT inherited — only exported scalars and functions survive.

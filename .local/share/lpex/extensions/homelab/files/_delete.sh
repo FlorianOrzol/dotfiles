@@ -1,9 +1,57 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : _delete.sh
-# @desc_short       : Delete file/directory on device AND in local mirror.
-#                     Sourced by files/main.sh.
+# @desc_short       : Delete file/directory on device(s) AND in local mirror.
+#                     Sourced lazily by files/main.sh when --delete is used.
 # ==============================================================================
+
+# ==============================================================================
+# --- action_delete_paths ---
+# @desc_short  : Entry function for --delete. Deletes each given mirror path on
+#                the device(s) and in the local mirror. For unified mirror types
+#                (host, observer) the deletion is applied to every device of that
+#                type so all devices stay in sync with the shared mirror.
+# @usage       : action_delete_paths <mirror_path...>
+# @parameter   : $@ | paths | Full local mirror paths of the entries to delete
+# ==============================================================================
+function action_delete_paths {
+    local paths=("$@")
+    local local_path
+
+    # Process each requested path — abort on first failure to avoid
+    # leaving devices of a unified type in an inconsistent state.
+    for local_path in "${paths[@]}"; do
+        _delete_dispatch "$local_path" || return 1
+    done
+}
+
+# --- _delete_dispatch ---
+# @desc_short  : Deletes one mirror path — fans out to all devices of the type
+#                for unified mirrors, single delete for per-device mirrors.
+# @parameter   : $1 | local_path | Full local mirror path of the entry to delete
+# ==============================================================================
+function _delete_dispatch {
+    local local_path="$1"
+    local type _device _remote
+
+    # Derive the device type — it decides between fan-out and single delete.
+    parse_mirror_path "$local_path" type _device _remote
+
+    if _is_unified_mirror_type "$type"; then
+        # Unified mirror — apply deletion to every device of this type so all stay in sync.
+        local devices=() dev
+        case "$type" in
+            host)     devices=("${HOSTS[@]}") ;;
+            observer) devices=("${OBSERVERS[@]}") ;;
+        esac
+        for dev in "${devices[@]}"; do
+            action_delete "$local_path" "$dev" || return 1
+        done
+    else
+        # Per-device mirror — device is encoded in the path.
+        action_delete "$local_path"
+    fi
+}
 
 # ==============================================================================
 # --- action_delete ---
@@ -12,8 +60,7 @@
 #                For unified types (host, observer), the device must be supplied explicitly
 #                via $2 because it is not encoded in the path.
 #                Remote delete must succeed before the local mirror is touched.
-#                Iteration over multiple paths is done in main.sh.
-# @usage       : action_delete <local_path> <device>
+# @usage       : action_delete <local_path> [device]
 # @parameter   : $1 | local_path | Full local mirror path of the entry to delete
 # @parameter   : $2 | device     | Target device name (required for unified mirror types)
 # ==============================================================================

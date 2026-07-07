@@ -1,1 +1,3 @@
-Manage files on homelab devices via a local mirror — fetch, push, delete and rename.
+Manage files on homelab devices via a local mirror — push, fetch, delete, rename, goto.
+One action per call: --push <device...|all>, --fetch <device>, --delete <mirror-path...>,
+--rename <mirror-path> --rename-to <name>, --goto <mirror-dir>.

@@ -1,44 +1,50 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : main.sh
-# @desc_short       : Validates arguments and routes to update actions.
+# @desc_short       : Entry point for 'homelab update' — expands the requested
+#                     target groups/devices, optionally wakes offline targets,
+#                     then updates each target sequentially.
 # ==============================================================================
 
+source "${PATH_EXTENSION}/_targets.sh"
 source "${PATH_EXTENSION}/_run.sh"
 
 # ==============================================================================
 # --- extension_start ---
-# @desc_short  : Collects all selected devices into one array, validates that at
-#                least one was given, then iterates and updates each device.
+# @desc_short  : Validates the device selection, expands groups into concrete
+#                targets and runs wake-up and update per target.
 # ==============================================================================
 function extension_start {
-    local -a all_targets=()
-    local any_error=0
-
-    # Collect all selected devices into a single array as "type:device" pairs.
-    # Each ARG_* is an array when --multi is used — the for loop handles 0..n entries.
-    for host      in "${ARG_HOST[@]}";      do all_targets+=("host:${host}");           done
-    for observer  in "${ARG_OBSERVER[@]}";  do all_targets+=("observer:${observer}");   done
-    for container in "${ARG_CONTAINER[@]}"; do all_targets+=("container:${container}"); done
-    for vm        in "${ARG_VM[@]}";        do all_targets+=("vm:${vm}");               done
-
-    # Require at least one device — nothing to update otherwise.
-    if (( ${#all_targets[@]} == 0 )); then
-        ERROR "Specify at least one device (--host, --observer, --container, --vm)."
+    # At least one target group or device is required.
+    if (( ${#ARG_DEVICES[@]} == 0 )); then
+        ERROR "No devices specified. Use --devices <all|hosts|observers|clients|host_1|ct_3040|...>."
         return 1
     fi
 
-    # Iterate all collected targets sequentially and update each one.
-    for target in "${all_targets[@]}"; do
+    # Expand groups (all, hosts, observers, clients) and validate device names
+    # into deduplicated "type:device" pairs.
+    local -a targets=()
+    collect_targets @targets "${ARG_DEVICES[@]}" || return 1
+
+    INFO "Resolved targets: ${targets[*]}"
+
+    local target type device any_error=0
+    for target in "${targets[@]}"; do
         # Split "type:device" pair — %% strips from first colon to end for type,
         # # strips up to and including first colon for device.
-        local type="${target%%:*}"
-        local device="${target#*:}"
+        type="${target%%:*}"
+        device="${target#*:}"
+
+        # Wake offline targets first — skip the update when waking fails.
+        if (( ARG_WAKE_UP )); then
+            wake_target "$type" "$device" || { any_error=1; continue; }
+        fi
+
         # Track failure without stopping — all targets should be attempted.
-        update_device "$type" "$device" "$ARG_DRY_RUN" "$ARG_PATCHES" || any_error=1
+        update_device "$type" "$device" "$ARG_DRY_RUN" || any_error=1
     done
 
-    # Propagate failure if any update failed.
+    # Propagate failure if any wake-up or update failed.
     (( any_error )) && return 1
     return 0
 }

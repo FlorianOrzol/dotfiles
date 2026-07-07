@@ -1,18 +1,63 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : _rename.sh
-# @desc_short       : Rename file/directory on device AND in local mirror.
-#                     Sourced by files/main.sh.
+# @desc_short       : Rename file/directory on device(s) AND in local mirror.
+#                     Sourced lazily by files/main.sh when --rename is used.
 # ==============================================================================
+
+# ==============================================================================
+# --- action_rename_entry ---
+# @desc_short  : Entry function for --rename. Renames the given mirror path on
+#                the device(s) and in the local mirror. For unified mirror types
+#                (host, observer) the rename is applied to every device of that
+#                type; the local mirror entry is renamed only once (last device).
+# @usage       : action_rename_entry <mirror_path>
+# @parameter   : $1 | local_path | Full local mirror path of the entry to rename
+# @notes       : The new name comes from the ARG_RENAME_TO global (--rename-to).
+# ==============================================================================
+function action_rename_entry {
+    local local_path="$1"
+
+    # New name is required — provided via --rename-to.
+    [[ -z "$ARG_RENAME_TO" ]] && { ERROR "No new name specified. Use --rename-to <name>."; return 1; }
+
+    local type _device _remote
+
+    # Derive the device type — it decides between fan-out and single rename.
+    parse_mirror_path "$local_path" type _device _remote
+
+    if _is_unified_mirror_type "$type"; then
+        # Unified mirror — apply rename to every device of this type so all stay in sync.
+        # Local mirror entry is renamed only on the last iteration (inside action_rename).
+        local devices=() dev last_dev
+        case "$type" in
+            host)     devices=("${HOSTS[@]}") ;;
+            observer) devices=("${OBSERVERS[@]}") ;;
+        esac
+        last_dev="${devices[-1]}"
+        for dev in "${devices[@]}"; do
+            if [[ "$dev" == "$last_dev" ]]; then
+                # Last device also renames the local mirror entry.
+                action_rename "$local_path" "$dev" || return 1
+            else
+                # Remote only — skip local rename until the last device to avoid renaming twice.
+                _rename_on_device "$type" "$dev" "$_remote" "$(dirname "$_remote")/${ARG_RENAME_TO}" || return 1
+            fi
+        done
+    else
+        # Per-device mirror — device is encoded in the path.
+        action_rename "$local_path"
+    fi
+}
 
 # ==============================================================================
 # --- action_rename ---
 # @desc_short  : Renames a file or directory on the device and in the local mirror.
 #                The device type and remote path are derived from the mirror path.
-#                For unified types (host, observer), the device must be supplied explicitly
-#                via $2 because it is not encoded in the path.
+#                For unified types (host, observer), the device must be supplied
+#                explicitly via $2 because it is not encoded in the path.
 #                Remote rename must succeed before the local mirror is touched.
-# @usage       : action_rename <local_path> <device>
+# @usage       : action_rename <local_path> [device]
 # @parameter   : $1 | local_path | Full local mirror path of the entry to rename
 # @parameter   : $2 | device     | Target device name (required for unified mirror types)
 # ==============================================================================
