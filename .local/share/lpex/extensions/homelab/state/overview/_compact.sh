@@ -41,7 +41,7 @@ function enter_column {
 function c_UPDATE  { enter_column  9 "$@"; }   # UPDATED   — age since last health write
 function c_DEVICE  { enter_column 22 "$@"; }   # DEVICE    — hostname + uptime in parens
 function c_LASTUPG { enter_column 10 "$@"; }   # LAST UPG  — time since last apt upgrade
-function c_UPG     { enter_column  5 "$@"; }   # UPG       — count of pending packages
+function c_UPG     { enter_column  6 "$@"; }   # UPG       — pending packages + reboot marker
 function c_MSGS    { enter_column  8 "$@"; }   # MSGS      — journal warnings + service failures
 function c_MEM     { enter_column  4 "$@"; }   # MEM       — RAM usage percent
 function c_STORE   { enter_column  5 "$@"; }   # STORE     — aggregate storage health label
@@ -136,6 +136,7 @@ function _compact_device_row {
             (.system.uptime_seconds | floor | tostring),
             (.updates.date_last_upgrade // "unknown"),
             (.updates.count_available_upgrades | tostring),
+            (.updates.reboot_required // false | tostring),
             (.memory.used_percent | tostring),
             (.journal.count_warnings_errors_0_4 // 0 | tostring),
             (.journal.count_critical_2 // 0 | tostring),
@@ -148,7 +149,7 @@ function _compact_device_row {
         ] | join("|")
     ' "${file_status_json}")
 
-    IFS='|' read -r hostname ts_raw uptime_s date_last_upgrade upg_count \
+    IFS='|' read -r hostname ts_raw uptime_s date_last_upgrade upg_count reboot_req \
         mem_pct j_warn j_crit j_emerg j_fail j_oom \
         zfs_state root_pct state_pct <<< "${json_out}"   # split into named vars
 
@@ -174,7 +175,7 @@ function _compact_device_row {
         last_upg_str="?"; last_upg_color="${FONT_YELLOW}"    # no upgrade record found
     else
         local last_upg_epoch
-        last_upg_epoch=$(date -d "${date_last_upgrade}" +%s 2>/dev/null)   # parse YYYY-MM-DD to epoch
+        last_upg_epoch=$(date -d "${date_last_upgrade}" +%s 2>/dev/null)   # parse date or ISO timestamp to epoch
         if [[ -z "${last_upg_epoch}" ]]; then
             last_upg_str="?"; last_upg_color="${FONT_YELLOW}"   # date format unrecognized
         else
@@ -185,10 +186,14 @@ function _compact_device_row {
         fi
     fi
 
-    # 5. --- UPG — available package count ------------------------------------
+    # 5. --- UPG — available package count + reboot marker ---------------------
     local upg_color="${FONT_RESET}"
     (( upg_count > 0  )) && upg_color="${FONT_YELLOW}"   # any pending packages = yellow
     (( upg_count > 50 )) && upg_color="${FONT_RED}"      # large backlog = red
+
+    # Pending reboot gets a red R! marker appended to the count (e.g. "12 R!")
+    local -a upg_args=(--color="${upg_color}" "${upg_count}")
+    [[ "${reboot_req}" == "true" ]] && upg_args+=(--color="${FONT_RED}" "R!")
 
     # 6. --- MSGS — compound: W(CE) + fl + oom --------------------------------
     # W = total journal severity 0–4; CE = critical+emergency subset
@@ -243,7 +248,7 @@ function _compact_device_row {
     c_UPDATE  --color="${updated_color}"  "${updated_str}"
     c_DEVICE  --color="${FONT_BOLD}"      "${hostname}" --color="${up_color}" "${up_part}"
     c_LASTUPG --color="${last_upg_color}" "${last_upg_str}"
-    c_UPG     --color="${upg_color}"      "${upg_count}"
+    c_UPG     "${upg_args[@]}"
     c_MSGS    "${msgs_args[@]}"
     c_MEM     --color="${mem_color}"      "${mem_pct}%"
     c_STORE   --color="${store_color}"    "${store_label}"

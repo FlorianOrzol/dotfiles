@@ -4,6 +4,27 @@
 # @desc_short       : Shared device-list and SSH helpers for all homelab submodules.
 # ==============================================================================
 
+# ==============================================================================
+# --- Desktop Share-Path Correction ---
+# config.conf is identical to homelab.conf (single source of truth) and defines
+# MOUNT_POOL_FAST for the nodes (/mnt/pool_fast/data). The desktop autofs mounts
+# the share root directly at /mnt/pool_fast — rebase all derived share paths so
+# every submodule reads the correct NFS locations without local hardcodes.
+# ==============================================================================
+# Rebase only when the node path is absent but the desktop mount exists
+if [[ ! -d "$MOUNT_POOL_FAST" && -d "/mnt/pool_fast/homelab_monitoring" ]]; then
+    MOUNT_POOL_FAST="/mnt/pool_fast"                                            # desktop share root (autofs)
+    MOUNT_POOL_BIG="/mnt/pool_big"                                              # desktop big pool root (autofs)
+    PATH_SHARE_MONITORING="${MOUNT_POOL_FAST}/homelab_monitoring"               # rebased monitoring base path
+    PATH_SHARE_LOGS="${PATH_SHARE_MONITORING}/logs"                             # rebased log path
+    PATH_SHARE_OUTPUTS="${PATH_SHARE_MONITORING}/outputs"                       # rebased outputs path
+    PATH_SHARE_STATE="${PATH_SHARE_MONITORING}/state"                           # rebased state path
+    PATH_SHARE_METRICS="${PATH_SHARE_MONITORING}/metrics"                       # rebased metrics path
+    FILE_SHARE_OBSERVER_HEARTBEAT_JSON="${PATH_SHARE_STATE}/observer_heartbeat.json"  # rebased heartbeat file
+    FILE_CONTAINER_LIVE="${PATH_SHARE_STATE}/hosts/host_1/lxc-live.txt"         # rebased CT live file
+    FILE_VM_LIVE="${PATH_SHARE_STATE}/hosts/host_1/vm-live.txt"                 # rebased VM live file
+fi
+
 # --- get_hosts ---
 # @desc_short  : Prints all configured hosts as "name # ip", one per line.
 # @usage       : get_hosts
@@ -60,6 +81,32 @@ function get_containers {
     share_mounted             || return 0   # skip silently if NFS share not mounted
     [[ -f "$FILE_CONTAINER_LIVE" ]] || return 0   # skip if live file missing
     cat "$FILE_CONTAINER_LIVE"              # emit container names from live file
+}
+
+# --- get_ha_clients ---
+# @desc_short  : Prints HA-managed containers in boot order as "id # name - status", one per line.
+# @usage       : get_ha_clients
+# @notes       : Joins the ha_clients boot order list (NFS, synced by the HA watcher)
+#                with the leader's live file — falls back to the bare ID when the
+#                live file has no entry (e.g. CT currently on another host).
+# ==============================================================================
+function get_ha_clients {
+    share_mounted || return 0               # skip silently if NFS share not mounted
+    local file_list="${PATH_SHARE_STATE}/ha_clients"
+    [[ -f "$file_list" ]] || return 0       # skip if HA list not synced to share yet
+
+    local id live_line
+    # Walk the list in boot order and enrich each ID with name/status from the live file
+    while IFS= read -r id || [[ -n "$id" ]]; do
+        id="${id%%#*}"                      # strip optional '# comment' suffix
+        id="${id//[[:space:]]/}"            # trim all whitespace around the ID
+        [[ -z "$id" ]] && continue          # skip blank/comment-only lines
+
+        live_line=""
+        # Match the ID against the live file ("<id> # <name> - <status>")
+        [[ -f "$FILE_CONTAINER_LIVE" ]] && live_line=$(awk -v id="$id" '$1==id' "$FILE_CONTAINER_LIVE")
+        echo "${live_line:-$id}"            # fall back to the bare ID without live data
+    done < "$file_list"
 }
 
 # --- get_vms ---
@@ -485,7 +532,7 @@ function wake_target {
 # Bash functions and arrays are NOT inherited — only exported scalars and functions survive.
 # This block runs once on source and makes all device-list helpers subshell-safe.
 # ==============================================================================
-export -f get_hosts get_observers get_nodes get_containers get_vms get_all_devices share_mounted _fetch_list_dir
-for _v in $(compgen -v | grep -E '^(IP_|MAC_|DEVICENAME_|OBSERVER_|MOUNT_|FILE_CONTAINER_|FILE_VM_)'); do
+export -f get_hosts get_observers get_nodes get_containers get_vms get_all_devices get_ha_clients share_mounted _fetch_list_dir
+for _v in $(compgen -v | grep -E '^(IP_|MAC_|DEVICENAME_|OBSERVER_|MOUNT_|FILE_CONTAINER_|FILE_VM_|PATH_SHARE_)'); do
     export "$_v"
 done; unset _v

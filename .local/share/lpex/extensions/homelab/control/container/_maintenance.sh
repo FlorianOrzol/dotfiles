@@ -13,10 +13,10 @@
 # ==============================================================================
 function action_maintenance {
     local device="$1"
-    local state_dir="${PATH_SHARE_STATE}/container_${device}"
+    local state_dir="${PATH_SHARE_STATE}/clients/${device}"                      # same path the HA watcher reads
 
     mkdir -p "$state_dir"                                                        # ensure state directory exists
-    echo '{"mode":"maintenance","set_by":"lpex"}' > "${state_dir}/ha_override.json"  # write HA override flag
+    echo '{"mode":"maintenance","set_by":"lpex"}' > "${state_dir}/ha_override.json"  # write HA override flag (no expiry = permanent)
 
     INFO "Container '${device}' remains running — HA will not restart it during maintenance."
     OK "Maintenance enabled for container '${device}'."

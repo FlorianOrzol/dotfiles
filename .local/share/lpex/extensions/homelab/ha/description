@@ -1,0 +1,4 @@
+HA-Container & Bootreihenfolge verwalten
+Zeigt die HA-verwalteten Container in Bootreihenfolge (NFS-first) und ändert
+die Liste: --add, --remove, --move --to <pos>, --edit ($EDITOR).
+Schreibt auf beide Observer (Source of Truth) und direkt auf den NFS-Share.

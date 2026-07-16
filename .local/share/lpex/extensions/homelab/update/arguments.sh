@@ -15,8 +15,13 @@
 #                       clients   → all containers and VMs (live via pct/qm on the hosts)
 #                       host_1, observer_1, ct_3040, vm_101 → single devices
 #
-# @options          : --dry-run  | Show upgradable packages only — no actual update
-#                     --wake-up  | Wake/start offline targets before updating
+# @options          : --dry-run      | Show upgradable packages only — no actual update
+#                     --wake-up      | Wake/start offline targets before updating
+#                     --reboot       | Reboot each target after its update when apt
+#                                      demands it (delayed on the device, see
+#                                      REBOOT_DELAY_MINUTES in update-os.sh)
+#                     --reboot-force | Reboot each target after its update
+#                                      unconditionally (wins over --reboot)
 #
 # @notes            : Patches (apply-patches.sh) sind hier bewusst NICHT mehr
 #                     angebunden — sie gehören zum geplanten Submodul 'setup patches'.
@@ -48,5 +53,9 @@ function arguments {
     arg_flag @dry_run --description "Show upgradable packages only — no actual update" \
         --depends-on "ARG_DEVICES"
     arg_flag @wake_up --description "Wake/start offline targets before updating" \
+        --depends-on "ARG_DEVICES"
+    arg_flag @reboot --description "Reboot targets after the update when apt demands it" \
+        --depends-on "ARG_DEVICES"
+    arg_flag @reboot_force --description "Reboot targets after the update unconditionally" \
         --depends-on "ARG_DEVICES"
 }

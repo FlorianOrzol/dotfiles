@@ -16,7 +16,6 @@
 # ==============================================================================
 function action_power {
     local device="$1" action="$2"
-    local ip
 
     INFO "Executing [${action}] on host '${device}'..."
 
@@ -25,8 +24,8 @@ function action_power {
             execute_on_device "$OBSERVER_PRIMARY" "/opt/homelab/bin/hosts/host-wake.sh ${device}"  # WOL packet sent from observer
             ;;
         shutdown)
-            ip=$(get_device_ip "$device") || return 1                                                # resolve IP for shutdown script
-            execute_on_device "$OBSERVER_PRIMARY" "/opt/homelab/bin/hosts/host-shutdown.sh ${ip}"   # graceful halt via observer
+            # host-shutdown.sh expects the logical host name and resolves the IP itself
+            execute_on_device "$OBSERVER_PRIMARY" "/opt/homelab/bin/hosts/host-shutdown.sh ${device}"  # graceful halt via observer
             ;;
         restart)
             execute_on_device "$device" "shutdown -r now"  # direct SSH reboot

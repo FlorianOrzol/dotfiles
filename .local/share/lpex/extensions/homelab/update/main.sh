@@ -41,7 +41,7 @@ function extension_start {
         fi
 
         # Track failure without stopping — all targets should be attempted.
-        update_device "$type" "$device" "$ARG_DRY_RUN" || any_error=1
+        update_device "$type" "$device" "$ARG_DRY_RUN" "$ARG_REBOOT" "$ARG_REBOOT_FORCE" || any_error=1
     done
 
     # Propagate failure if any wake-up or update failed.
