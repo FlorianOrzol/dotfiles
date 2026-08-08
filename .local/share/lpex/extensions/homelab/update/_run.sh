@@ -59,6 +59,28 @@ function update_device {
     return 0
 }
 
+# --- shutdown_woken_host ---
+# @desc_short  : Powers a host down again that this run woke up for the update.
+# @desc_detailed: Restores the pre-update power state — a host that was off before
+#                 must not be left running afterwards. Delegates to host-shutdown.sh
+#                 on the primary observer, the same path 'control host power' uses,
+#                 so the observer stays the single power authority and logs the event.
+# @parameter   : $1 | device | Logical host name
+# ==============================================================================
+function shutdown_woken_host {
+    local device="$1"
+
+    INFO "[${device}] Was offline before the update — powering down again via ${OBSERVER_PRIMARY}..."
+
+    # Best-effort: a failed power-down only leaves the host running, which is harmless
+    if ! execute_on_device "$OBSERVER_PRIMARY" "/opt/homelab/bin/hosts/host-shutdown.sh ${device}"; then
+        WARN "[${device}] Power-down failed — host stays online."
+        return 1
+    fi
+
+    OK "[${device}] Powered down again."
+}
+
 # --- _refresh_device_status ---
 # @desc_short  : Re-runs the status collector of a device so the NFS share
 #                reflects the post-update state immediately.

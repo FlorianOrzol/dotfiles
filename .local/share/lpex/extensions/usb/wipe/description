@@ -1,0 +1,28 @@
+Erase everything — including hidden and leftover partitions
+─────────────────────────────────────────────────────────────
+For the case "the stick has 32 GB but only shows 4 GB" or "there is a partition
+on it I cannot get rid of".
+
+USAGE
+  usb wipe /dev/sdb
+  usb wipe /dev/sdb --full     also zero the WHOLE device (slow)
+  usb -s wipe /dev/sdb         show only, run nothing
+
+WHY THREE ERASE STEPS?
+  1. wipefs -a  finds and removes all known signatures, even orphaned ones that
+     no partition table points at anymore.
+  2. Zero the first 16 MB  clears MBR boot code and the primary GPT header.
+     An isohybrid image (every Linux ISO) writes exactly there.
+  3. Zero the last 16 MB  removes the GPT BACKUP header.
+     GPT keeps a second copy of the table at the end of the device.
+     That is precisely why a deleted partitioning otherwise keeps coming back.
+
+--full: WHEN?
+  Only when the stick is given away or sold. It overwrites every byte and takes
+  about ten minutes for 32 GB. Against forensic recovery on flash storage even
+  this helps only so much — wear levelling keeps copies in blocks that dd never
+  gets to see.
+
+AFTERWARDS
+  The stick has neither a partition table nor a filesystem, so it is unusable
+  until 'usb format' runs. That is intended, not a failure.

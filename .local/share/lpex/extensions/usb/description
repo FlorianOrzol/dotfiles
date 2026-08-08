@@ -1,0 +1,34 @@
+Format, write, wipe and inspect USB devices
+─────────────────────────────────────────────────────────────
+Every command that changes the device prints itself with a short explanation
+and asks before it runs.
+
+THREE MODES
+  usb format /dev/sdb --fs vfat       show + ask + run
+  usb -s format /dev/sdb --fs vfat    show only, nothing runs
+  usb -y format /dev/sdb --fs vfat    run without asking
+
+  -s and -y are global LPEX flags. They may appear up to the first extension
+  value, so 'usb -s format /dev/sdb' and 'usb format -s /dev/sdb' both work,
+  while 'usb format /dev/sdb -s' does not.
+
+  Note: -s only suppresses commands marked with --confirm. Read-only lookups
+  keep running, otherwise the following steps would lose their input values.
+
+RECIPES
+  format   set up a stick from scratch
+           umount -> wipefs -> partition table -> partition -> mkfs -> verify
+  write    write an ISO/IMG (dd) and compare it back byte by byte
+  wipe     erase everything, including hidden and leftover partitions
+           wipefs plus zeroing start AND end of the device (GPT backup!)
+  check    read-only: partitions, filesystems, labels, UUIDs, vendor
+
+SAFETY
+  No recipe touches a disk carrying /, /boot, /home, /usr, /var or swap.
+  That block cannot be bypassed, not even with -y.
+  Destructive recipes require the device name to be typed out in full.
+
+WHICH FILESYSTEM?
+  vfat   FAT32  readable everywhere, but no single file above 4 GB
+  exfat         large files, Windows/macOS/Linux — needs exfatprogs
+  ext4          Linux only, but real permissions and a journal

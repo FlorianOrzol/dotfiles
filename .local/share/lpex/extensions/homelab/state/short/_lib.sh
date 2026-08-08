@@ -22,6 +22,7 @@ PATH_MONITORING="${MOUNT_POOL_FAST}/homelab_monitoring" # base NFS monitoring pa
 PATH_STATE="${PATH_MONITORING}/state"                   # live state root
 PATH_STATE_HOSTS="${PATH_STATE}/hosts"                  # per-host state directories
 PATH_STATE_OBSERVERS="${PATH_STATE}/observers"          # per-observer state directories
+PATH_STATE_CLIENTS="${PATH_STATE}/clients"              # per-client state directories (keyed by PVE ID)
 FILE_OBSERVER_HEARTBEAT="${PATH_STATE}/observer_heartbeat.json"
 
 CMD_JQ="/usr/bin/jq"            # jq for JSON field extraction

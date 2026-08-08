@@ -1,0 +1,24 @@
+Inspect a stick — partitions, filesystems, labels, vendor
+─────────────────────────────────────────────────────────────
+Read-only. Nothing is changed, so no command asks for confirmation and the
+recipe behaves identically with -s.
+
+WHAT FOR
+  Before formatting or writing: is this really the right stick?
+  After formatting: did the filesystem and label turn out as intended?
+  When something is odd: why does the stick look smaller than it is?
+
+WHAT IT SHOWS
+  lsblk       device and partition tree with size, FS, label, mountpoint
+  blkid       UUIDs and filesystem types of every partition
+  fdisk -l    partition table type (gpt/dos) and sector boundaries
+  udevadm     vendor, model, serial, bus — which stick is this?
+
+TYPICAL FINDINGS
+  "32 GB stick, but only 4 GB visible" -> an old isohybrid ISO is still on it.
+  The remaining capacity sits in an unused gap -> 'usb wipe', then 'usb format'.
+
+  "Two partitions, one tiny and vfat" -> also an ISO leftover (EFI partition).
+
+  fdisk reports "doesn't contain a valid partition table" -> the stick is blank,
+  'usb format' has not run yet.

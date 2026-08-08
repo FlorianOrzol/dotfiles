@@ -1,0 +1,41 @@
+Write an ISO/IMG onto the stick (dd) and verify it byte by byte
+─────────────────────────────────────────────────────────────
+For installation media and rescue systems. The image is copied raw onto the
+device — no partitioning, no filesystem. Everything that was on it is gone.
+
+USAGE
+  usb write ~/Downloads/archlinux.iso --device /dev/sdb
+  usb write ~/img/rescue.img --device /dev/sdb --no-verify
+  usb -s write ~/Downloads/archlinux.iso --device /dev/sdb    (show only)
+  usb write ~/Downloads/archlinux.iso                         (fzf picks the device)
+
+THE dd FLAGS THAT ACTUALLY MATTER
+  of=/dev/sdb        onto the DEVICE, not onto /dev/sdb1. An ISO brings its own
+                     partition table, and that has to land at the very front.
+  bs=4M              block size. Without it dd writes in 512-byte chunks and
+                     takes many times longer.
+  status=progress    live reporting. Without it dd stays silent for minutes.
+  oflag=direct       bypasses the page cache, so the reported progress matches
+                     what actually reached the stick.
+  conv=fsync         dd returns only once everything has been written.
+
+WHY THE COMPARISON AT THE END?
+  cmp -n <bytes> image.iso /dev/sdb reads the stick back and compares it byte by
+  byte against the source. That is the only reliable way to detect a stick that
+  silently swallows writes — cheap and counterfeit sticks do exactly that. No
+  output means identical. Use --no-verify when speed matters more.
+
+EFI OR LEGACY? NEITHER — IT IS ALREADY IN THE ISO
+  Every common Linux ISO is an isohybrid image and carries both boot paths: an
+  MBR boot sector with isolinux for BIOS, and an embedded EFI system partition
+  image for UEFI. dd copies both, the firmware picks what it needs.
+
+  The real mistakes are these:
+    formatting the stick FAT32 and copying the ISO FILE onto it -> never boots
+    extracting the ISO contents onto it -> boots UEFI only, never BIOS
+    formatting before 'usb write' -> pointless, dd overwrites the table anyway
+    "does not boot" -> usually Secure Boot or a disabled CSM, not the stick
+
+AFTERWARDS THE STICK IS NO LONGER "NORMAL"
+  It carries the ISO's partitioning, mostly read-only and with odd sizes.
+  Back to a regular data stick: 'usb wipe', then 'usb format'.

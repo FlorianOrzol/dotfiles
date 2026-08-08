@@ -36,12 +36,26 @@ function extension_start {
         device="${target#*:}"
 
         # Wake offline targets first — skip the update when waking fails.
+        # was_offline records whether this run started the device, so its previous
+        # power state can be restored below.
+        local was_offline=0
         if (( ARG_WAKE_UP )); then
-            wake_target "$type" "$device" || { any_error=1; continue; }
+            wake_target @was_offline "$type" "$device" || { any_error=1; continue; }
         fi
 
         # Track failure without stopping — all targets should be attempted.
         update_device "$type" "$device" "$ARG_DRY_RUN" "$ARG_REBOOT" "$ARG_REBOOT_FORCE" || any_error=1
+
+        # Restore the pre-update power state for hosts this run woke up.
+        if (( was_offline )); then
+            # A requested reboot wins — shutting down now would kill the device
+            # mid-boot, and the caller explicitly asked for it to come back up.
+            if [[ -n "$ARG_REBOOT" || -n "$ARG_REBOOT_FORCE" ]]; then
+                WARN "[${device}] Woken for this update but stays online — a reboot was requested."
+            else
+                shutdown_woken_host "$device" || any_error=1
+            fi
+        fi
     done
 
     # Propagate failure if any wake-up or update failed.

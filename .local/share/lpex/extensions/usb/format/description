@@ -1,0 +1,33 @@
+Set up a stick from scratch — wipefs, partition table, filesystem
+─────────────────────────────────────────────────────────────
+Seven steps from any starting state to a clean stick:
+  umount -> wipefs -a -> mklabel -> mkpart -> partprobe -> mkfs -> verify
+
+USAGE
+  usb format /dev/sdb --fs vfat --label DATA
+  usb -s format /dev/sdb --fs exfat        (show only, run nothing)
+  usb -y format /dev/sdb --fs vfat         (run without asking)
+
+WHY wipefs AND mklabel?
+  wipefs -a removes every signature anywhere on the stick — including those of
+  an old ISO or a second, hidden partition table. mklabel then creates a fresh
+  table. mklabel alone would leave old filesystem signatures behind, and some
+  systems still find them.
+
+WHY partprobe?
+  After mkpart the kernel does not know /dev/sdb1 yet. Without partprobe the
+  following mkfs fails with "No such file or directory".
+
+msdos OR gpt?
+  Without --table the recipe picks msdos for vfat and gpt otherwise.
+  msdos (MBR) is understood by car radios, TVs and old BIOS machines.
+  gpt is only needed beyond 2 TB — and some devices ignore gpt sticks entirely.
+
+LABEL
+  FAT32 stores labels uppercase only and at most 11 characters long. The recipe
+  converts and truncates automatically and warns when it does. Without --label
+  no label is set at all.
+
+IT FORMATS THE PARTITION, NOT THE DEVICE
+  mkfs runs on /dev/sdb1, not on /dev/sdb. A filesystem straight on the device
+  does work on Linux, but Windows will consider the stick empty.

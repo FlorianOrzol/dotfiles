@@ -490,11 +490,25 @@ function observer_log_event {
 #                pct start (containers) and qm start (VMs), blocks until the
 #                target is ready and logs the event on the observer — the observer
 #                authoritatively knows about every externally requested start.
-# @usage       : wake_target <type> <device>
+# @usage       : wake_target [@ref] <type> <device>
+# @parameter   : @ref    | nameref | optional: receives 1 when this call actually
+#                                    started the target, 0 when it was already up.
+#                                    Hosts only — the only type with a graceful
+#                                    power-down path (host-shutdown.sh).
 # @parameter   : $1 | type   | Device type: observer | host | container | vm
 # @parameter   : $2 | device | Device name or ID
 # ==============================================================================
 function wake_target {
+    local ref_was_offline=""
+
+    # Optional @ref in first position — lets the caller restore the previous power
+    # state afterwards instead of leaving a woken device running
+    if [[ "$1" == @* ]]; then
+        ref_was_offline="${1#@}"
+        printf -v "$ref_was_offline" '%s' "0"  # default: target was already up
+        shift
+    fi
+
     local type="$1" device="$2"
     local target ip user
 
@@ -508,6 +522,14 @@ function wake_target {
         # Unknown type indicates a bug in the caller — surface it immediately.
         *)         ERROR "Unknown device type: '${type}'"; return 1 ;;
     esac
+
+    # Probe before waking — obs-wake.sh reports success either way, so only a host
+    # that is unreachable right now is one this call actually powers on
+    if [[ -n "$ref_was_offline" && "$type" == "host" ]]; then
+        local ip_target
+        ip_target=$(get_device_ip "$device") || return 1
+        ping -c 1 -W 2 "$ip_target" >/dev/null 2>&1 || printf -v "$ref_was_offline" '%s' "1"
+    fi
 
     # Resolve the primary observer — the single wake authority.
     ip=$(get_device_ip "$OBSERVER_PRIMARY")         || return 1
