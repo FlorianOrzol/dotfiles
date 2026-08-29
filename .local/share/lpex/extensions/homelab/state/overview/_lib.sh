@@ -22,6 +22,7 @@ PATH_MONITORING="${MOUNT_POOL_FAST}/homelab_monitoring" # base NFS monitoring pa
 PATH_STATE="${PATH_MONITORING}/state"                   # live state root
 PATH_STATE_HOSTS="${PATH_STATE}/hosts"                  # per-host state directories
 PATH_STATE_OBSERVERS="${PATH_STATE}/observers"          # per-observer state directories
+PATH_STATE_CLIENTS="${PATH_STATE}/clients"              # per-client state directories (keyed by PVE ID)
 FILE_OBSERVER_HEARTBEAT="${PATH_STATE}/observer_heartbeat.json"
 
 CMD_JQ="/usr/bin/jq"            # jq for JSON field extraction
@@ -67,6 +68,34 @@ function _status_fetch_ha_ids {
         [[ -z "${line}" ]] && continue
         HA_CONTAINER_IDS+=("${line}")
     done < "${file_ha_clients}"
+}
+
+# --- _status_fetch_ha_removed ---
+# @desc_short       : Reads the ha_removed.json markers into HA_REMOVED_IDS / HA_REMOVED_DATE.
+# @usage            : _status_fetch_ha_removed
+# @notes            : Written by 'lpex homelab ha --remove' and '--edit'. A marker means the
+#                     container was deliberately taken out of HA and is no longer restarted;
+#                     it is deleted when the container is added back. Having no markers at
+#                     all is the normal case — never an error.
+# ================================================================================
+function _status_fetch_ha_removed {
+    local file_removed container_id removed_iso
+
+    # Reset both globals — the associative array needs an explicit unset to clear
+    HA_REMOVED_IDS=()
+    unset HA_REMOVED_DATE
+    declare -gA HA_REMOVED_DATE
+
+    # Glob over all client dirs — only those carrying a marker were removed on purpose
+    for file_removed in "${PATH_STATE_CLIENTS}"/*/ha_removed.json; do
+        [[ -f "${file_removed}" ]] || continue
+        container_id=$(basename "$(dirname "${file_removed}")")
+        HA_REMOVED_IDS+=("${container_id}")
+
+        # Marker stores UTC ISO — the views show a short local date instead
+        removed_iso=$(${CMD_JQ} -r '.removed_iso // empty' "${file_removed}" 2>/dev/null)
+        HA_REMOVED_DATE["${container_id}"]=$(date -d "${removed_iso}" '+%d.%m.' 2>/dev/null || echo "?")
+    done
 }
 
 # --- _status_format_duration ---

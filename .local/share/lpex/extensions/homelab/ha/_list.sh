@@ -63,8 +63,50 @@ function action_list {
         (( pos++ ))
     done
 
+    _list_removed   # containers that left HA — kept visible until they are added back
+
     # Hint at the data source so stale info is explainable
     if [[ ! -f "$FILE_CONTAINER_LIVE" ]]; then
         WARN "lxc-live.txt not readable — names/statuses unavailable (share unmounted?)."
     fi
+}
+
+# --- _list_removed ---
+# @desc_short  : Prints the containers that were removed from HA and stayed removed.
+# @desc_detailed: Fed by the ha_removed.json markers on the share. Silent when no
+#                 container was ever removed — the common case on a healthy setup.
+# @usage       : _list_removed
+# ==============================================================================
+function _list_removed {
+    local -a removed_entries
+    _ha_read_removed @removed_entries
+
+    # Nothing removed = nothing to report, keep the list output short
+    (( ${#removed_entries[@]} == 0 )) && return 0
+
+    printf '\n%b\n' "${FONT_BOLD}  REMOVED FROM HA — running, but no longer restarted${FONT_RESET}"
+    printf '%b\n' "${FONT_DIM}  CT-ID      NAME                 REMOVED           BY${FONT_RESET}"
+
+    local entry rm_id rm_iso rm_actor rm_reason rm_name rm_date
+    for entry in "${removed_entries[@]}"; do
+        IFS='|' read -r rm_id rm_iso rm_actor rm_reason <<< "$entry"
+
+        # Resolve the name from the leader's live file — the CT usually still runs
+        rm_name="-"
+        if [[ -f "$FILE_CONTAINER_LIVE" ]]; then
+            rm_name=$(awk -v id="$rm_id" '$1==id {print $3}' "$FILE_CONTAINER_LIVE")
+            rm_name="${rm_name:--}"
+        fi
+
+        # Local short date is easier to scan than the stored UTC ISO timestamp
+        rm_date=$(date -d "$rm_iso" '+%d.%m. %H:%M' 2>/dev/null) || rm_date="$rm_iso"
+
+        printf '  %b%-10s %-20s %-17s %s%b\n' \
+            "$FONT_YELLOW" "$rm_id" "$rm_name" "$rm_date" "$rm_actor" "$FONT_RESET"
+
+        # The reason is free text of unknown length — own indented line instead of a column
+        if [[ -n "$rm_reason" ]]; then
+            printf '  %b  ↳ %s%b\n' "$FONT_DIM" "$rm_reason" "$FONT_RESET"
+        fi
+    done
 }

@@ -26,7 +26,7 @@ function extension_start {
     [[ -n "$ARG_MOVE" && -z "$ARG_TO" ]] && { ERROR "--move requires --to <position>."; return 1; }
 
     [[ -n "$ARG_ADD" ]]    && { action_add    "$ARG_ADD";            return $?; }
-    [[ -n "$ARG_REMOVE" ]] && { action_remove "$ARG_REMOVE";         return $?; }
+    [[ -n "$ARG_REMOVE" ]] && { action_remove "$ARG_REMOVE" "$ARG_REASON"; return $?; }
     [[ -n "$ARG_MOVE" ]]   && { action_move   "$ARG_MOVE" "$ARG_TO"; return $?; }
     [[ -n "$ARG_EDIT" ]]   && { action_edit;                         return $?; }
 

@@ -18,10 +18,26 @@
 # @exit_codes       : 0 | Success.
 # @exit_codes       : 1 | Invalid arguments or at least one entry failed.
 #
-# @req_packages     : GNU coreutils (chown --reference), bash, find
+# @req_packages     : bash, find, stat, cp, chown
 # @notes            : No LPEX dependencies — must stay standalone.
 #                     File modes (+x etc.) are preserved from the mirror source.
+#                     Only POSIX-level flags are used: Alpine clients ship busybox,
+#                     which knows neither 'chown --reference' nor 'cp --preserve=mode'.
 # ==============================================================================
+
+# --- read_owner ---
+# @desc_short  : Prints 'uid:gid' of a path, usable as a chown argument.
+# @usage       : read_owner <path>
+# @parameter   : $1 | path | Existing file or directory to read ownership from
+# @notes       : Replaces 'chown --reference' — that flag is GNU-only and absent
+#                on busybox (Alpine clients).
+# ==============================================================================
+function read_owner {
+    local path="$1"
+
+    # Numeric ids instead of names — the target may not know the same users.
+    stat -c '%u:%g' "$path"
+}
 
 # --- ensure_dir_inherit ---
 # @desc_short  : Creates a directory chain; every newly created level inherits
@@ -41,7 +57,7 @@ function ensure_dir_inherit {
 
     # Create this level and inherit owner/group from its (now existing) parent.
     mkdir "$dir" || return 1
-    chown --reference="$(dirname "$dir")" "$dir"
+    chown "$(read_owner "$(dirname "$dir")")" "$dir"
 }
 
 # --- install_payload ---
@@ -82,13 +98,18 @@ function install_payload {
         # Parent may be missing when the payload is a single file.
         ensure_dir_inherit "$(dirname "$dest")" || { any_error=1; continue; }
 
-        # -P keeps symlinks as links; --preserve=mode keeps +x etc. from the
-        # mirror; --remove-destination replaces existing entries like tar did.
-        cp -P --preserve=mode --remove-destination "$src" "$dest" || { any_error=1; continue; }
+        # Remove first, then copy — replaces existing entries like tar did and
+        # detaches a running binary from its inode instead of writing into it.
+        rm -f "$dest"
+
+        # -P keeps symlinks as links, -p carries the file mode (+x) over from the
+        # mirror. Both are POSIX flags — busybox understands them, unlike
+        # '--preserve=mode' and '--remove-destination'.
+        cp -P -p "$src" "$dest" || { any_error=1; continue; }
 
         # File always gets owner/group of its target directory (-h: never
         # follow symlinks — adjust the link itself).
-        chown -h --reference="$(dirname "$dest")" "$dest" || any_error=1
+        chown -h "$(read_owner "$(dirname "$dest")")" "$dest" || any_error=1
     done < <(find "$staging" -mindepth 1 \( -type f -o -type l \) -print0)
 
     return "$any_error"

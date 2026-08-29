@@ -458,4 +458,14 @@ function _compact_section_containers {
 	done
 		echo -e "${ct_states}"
 
+    # Deliberately removed containers keep a line of their own — they are running but
+    # unprotected, and without this they would silently disappear from this section
+    if (( ${#HA_REMOVED_IDS[@]} > 0 )); then
+        local removed_line="" removed_id
+        for removed_id in "${HA_REMOVED_IDS[@]}"; do
+            removed_line+="${removed_id} (${HA_REMOVED_DATE[${removed_id}]})  "
+        done
+        printf '%b\n' "${FONT_YELLOW}not HA:  ${removed_line}${FONT_RESET}"
+    fi
+
 }

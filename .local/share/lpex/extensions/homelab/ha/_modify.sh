@@ -26,19 +26,27 @@ function action_add {
     done
 
     ha_list+=("$container_id")
-    _ha_write_list "$(printf '%s\n' "${ha_list[@]}")" "CT ${container_id} added, boot position ${#ha_list[@]}" || return 1
+    _ha_write_list "$(printf '%s\n' "${ha_list[@]}")" "CT ${container_id} added, boot position ${#ha_list[@]} by $(_ha_actor)" || return 1
+
+    # Back under HA — the removal marker must not keep flagging it in the status views
+    _ha_clear_removed "$container_id"
+
     OK "CT ${container_id} added to HA at boot position ${#ha_list[@]}."
 }
 
 # --- action_remove ---
 # @desc_short  : Removes a container from the HA list and clears its watcher state.
-# @usage       : action_remove <container_id>
+# @desc_detailed: Also writes a permanent ha_removed.json marker on the share so the
+#                 container stays visible as unprotected in every status view.
+# @usage       : action_remove <container_id> [reason]
 # @parameter   : $1 | container_id | CT ID (numeric).
+# @parameter   : $2 | reason       | Optional free text recorded with the removal.
 # ==============================================================================
 function action_remove {
     local container_id="$1"
+    local reason="${2:-}"
     local -a ha_list new_list=()
-    local found=0 id observer ip user
+    local found=0 boot_position=0 position=1 id observer ip user
 
     _ha_read_list @ha_list || return 1
 
@@ -46,14 +54,19 @@ function action_remove {
     for id in "${ha_list[@]}"; do
         if [[ "$id" == "$container_id" ]]; then
             found=1
+            boot_position=$position     # remembered for the marker: where it used to boot
         else
             new_list+=("$id")
         fi
+        (( position++ ))
     done
 
     (( found )) || { WARN "CT ${container_id} is not HA-managed — nothing to remove."; return 0; }
 
-    _ha_write_list "$(printf '%s\n' "${new_list[@]}")" "CT ${container_id} removed" || return 1
+    _ha_write_list "$(printf '%s\n' "${new_list[@]}")" "CT ${container_id} removed by $(_ha_actor)${reason:+ — ${reason}}" || return 1
+
+    # Permanent record on the share — the status views read this, not the logs
+    _ha_mark_removed "$container_id" "$boot_position" "$reason"
 
     # Clear the watcher's per-CT state file on both observers — best effort, a leftover
     # file is harmless (the watcher only reads states for listed IDs)
@@ -114,11 +127,13 @@ function action_move {
 
 # --- action_edit ---
 # @desc_short  : Opens the boot order in $EDITOR, validates and deploys the result.
+# @desc_detailed: Removal markers are synced with the edit — every ID dropped from
+#                 the list gets one, every ID brought back loses it.
 # @usage       : action_edit
 # ==============================================================================
 function action_edit {
     local -a ha_list
-    local file_tmp id line
+    local file_tmp id line position
 
     _ha_read_list @ha_list || return 1
 
@@ -154,6 +169,25 @@ function action_edit {
         return 0
     fi
 
-    _ha_write_list "$(printf '%s\n' "${new_list[@]}")" "boot order edited (${#new_list[@]} CTs)" || return 1
+    _ha_write_list "$(printf '%s\n' "${new_list[@]}")" "boot order edited (${#new_list[@]} CTs) by $(_ha_actor)" || return 1
+
+    # Every ID the edit dropped gets the same permanent record as an explicit --remove
+    position=1
+    for id in "${ha_list[@]}"; do
+        # Missing from the new list means the edit removed it — remember its old boot slot
+        if [[ " ${new_list[*]} " != *" ${id} "* ]]; then
+            _ha_mark_removed "$id" "$position" "removed via --edit"
+        fi
+        (( position++ ))
+    done
+
+    # An ID the edit brought back may still carry a marker from an earlier removal
+    for id in "${new_list[@]}"; do
+        # Absent from the old list means the edit added it — the marker is stale now
+        if [[ " ${ha_list[*]} " != *" ${id} "* ]]; then
+            _ha_clear_removed "$id"
+        fi
+    done
+
     OK "Boot order updated (${#new_list[@]} CTs)."
 }

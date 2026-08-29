@@ -18,5 +18,8 @@ function extension_start {
     # Read HA container IDs from NFS share (written by observer on change) — no SSH needed
     _status_fetch_ha_ids || WARN "ha_clients not yet on share — deploy observer or run obs-ha-clients-watch manually"
 
+    # Read the removal markers so deliberately unprotected containers stay visible
+    _status_fetch_ha_removed
+
 	_action_compact
 }

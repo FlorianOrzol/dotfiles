@@ -48,6 +48,7 @@ function c_STORE   { enter_column  5 "$@"; }   # STORE     — aggregate storage
 function c_TYPE    { enter_column  6 "$@"; }   # TYPE      — client type: ct-p | ct-u | vm
 function c_DOCK    { enter_column  6 "$@"; }   # DOCK      — docker containers running/total
 function c_CLIENT  { enter_column 30 "$@"; }   # CLIENT    — id + name + uptime (wider than DEVICE)
+function c_HA      { enter_column  4 "$@"; }   # HA        — HA state: on | off | ovr | —
 
 
 # ==============================================================================
@@ -282,6 +283,8 @@ function _compact_heartbeat_line {
 # One compact row per client (CT/VM) — read from state/clients/<id>/status.json,
 # written daily by get-clients-status.sh on the host. Only running clients have
 # a status.json; stopped ones appear in the HA CONTAINERS section instead.
+# The HA column combines three share files: the ha_clients boot list, the
+# ha_override.json pause flag and the ha_removed.json removal marker.
 # ==============================================================================
 
 # --- _compact_section_clients ---
@@ -307,6 +310,7 @@ function _compact_section_clients {
     c_UPDATE  --color="${FONT_DIM}" "TIME"
     c_CLIENT  --color="${FONT_DIM}" "CLIENT (UP)"
     c_TYPE    --color="${FONT_DIM}" "TYPE"
+    c_HA      --color="${FONT_DIM}" "HA"
     c_LASTUPG --color="${FONT_DIM}" "DATE_UPG"
     c_UPG     --color="${FONT_DIM}" "UPG"
     c_MSGS    --color="${FONT_DIM}" "MSGS"
@@ -383,7 +387,19 @@ function _compact_client_row {
         vm)              type_str="vm"   ;;
     esac
 
-    # 5. --- LAST UPG — time since last package upgrade ------------------------
+    # 5. --- HA — high-availability state of this container --------------------
+    # Override wins over list membership: the CT is listed but its HA is paused.
+    # A removal marker outranks "never managed" — it means someone took it out.
+    local ha_str="—" ha_color="${FONT_DIM}"
+    if [[ -f "${PATH_STATE_CLIENTS}/${client_id}/ha_override.json" ]]; then
+        ha_str="ovr"; ha_color="${FONT_YELLOW}"     # HA paused by an override file
+    elif [[ " ${HA_CONTAINER_IDS[*]} " == *" ${client_id} "* ]]; then
+        ha_str="on";  ha_color="${FONT_GREEN}"      # in the boot list, watcher restarts it
+    elif [[ -f "${PATH_STATE_CLIENTS}/${client_id}/ha_removed.json" ]]; then
+        ha_str="off"; ha_color="${FONT_YELLOW}"     # deliberately removed, running unprotected
+    fi
+
+    # 6. --- LAST UPG — time since last package upgrade ------------------------
     # unknown = yellow; >50d = yellow; >180d = red (same thresholds as devices)
     local last_upg_str last_upg_color="${FONT_RESET}"
     if [[ "${date_last_upgrade}" == "unknown" ]]; then
@@ -401,7 +417,7 @@ function _compact_client_row {
         fi
     fi
 
-    # 6. --- UPG — available package count + reboot marker ---------------------
+    # 7. --- UPG — available package count + reboot marker ---------------------
     local upg_color="${FONT_RESET}"
     (( upg_count > 0  )) && upg_color="${FONT_YELLOW}"   # any pending packages = yellow
     (( upg_count > 50 )) && upg_color="${FONT_RED}"      # large backlog = red
@@ -410,7 +426,7 @@ function _compact_client_row {
     local -a upg_args=(--color="${upg_color}" "${upg_count}")
     [[ "${reboot_req}" == "true" ]] && upg_args+=(--color="${FONT_RED}" "R!")
 
-    # 7. --- MSGS — compound: W(CE) + fl + oom ---------------------------------
+    # 8. --- MSGS — compound: W(CE) + fl + oom ---------------------------------
     # Same semantics as the device table; OOM shown for clients too (docker workloads)
     local -a msgs_args=()
 
@@ -432,12 +448,12 @@ function _compact_client_row {
         msgs_args=(--color="${FONT_DIM}" "—")   # dim dash = nothing to report
     fi
 
-    # 8. --- MEM — RAM usage percent -------------------------------------------
+    # 9. --- MEM — RAM usage percent -------------------------------------------
     local mem_color="${FONT_GREEN}"
     (( mem_pct >= 75 )) && mem_color="${FONT_YELLOW}"
     (( mem_pct >= 90 )) && mem_color="${FONT_RED}"
 
-    # 9. --- STORE — root filesystem usage (clients have no ZFS pools) ---------
+    # 10. --- STORE — root filesystem usage (clients have no ZFS pools) ---------
     local store_label="OK" store_color="${FONT_GREEN}"
     if   (( root_pct >= 90 )); then
         store_label="ERROR"; store_color="${FONT_RED}"
@@ -445,7 +461,7 @@ function _compact_client_row {
         store_label="WARN";  store_color="${FONT_YELLOW}"
     fi
 
-    # 10. --- DOCK — docker containers running/total ----------------------------
+    # 11. --- DOCK — docker containers running/total ----------------------------
     # No docker section in JSON = client without docker → dim dash
     local -a dock_args=(--color="${FONT_DIM}" "—")
     if [[ -n "${dock_total}" ]]; then
@@ -455,11 +471,12 @@ function _compact_client_row {
         dock_args=(--color="${dock_color}" "${dock_run}/${dock_total}")
     fi
 
-    # 11. --- Assemble row using column functions --------------------------------
+    # 12. --- Assemble row using column functions --------------------------------
     printf ' '
     c_UPDATE  --color="${updated_color}"  "${updated_str}"
     c_CLIENT  --color="${FONT_BOLD}"      "${client_id} ${client_name}" --color="${up_color}" "${up_part}"
     c_TYPE    "${type_str}"
+    c_HA      --color="${ha_color}"       "${ha_str}"
     c_LASTUPG --color="${last_upg_color}" "${last_upg_str}"
     c_UPG     "${upg_args[@]}"
     c_MSGS    "${msgs_args[@]}"
@@ -653,5 +670,15 @@ function _compact_section_containers {
 		[[ $line == *";stopped" ]] && ct_states+="$FONT_RED${line%%;*} ${FONT_RESET}"  # color ID
 	done
 		echo -e "${ct_states}"
+
+    # Deliberately removed containers keep a line of their own — they are running but
+    # unprotected, and without this they would silently disappear from this section
+    if (( ${#HA_REMOVED_IDS[@]} > 0 )); then
+        local removed_line="" removed_id
+        for removed_id in "${HA_REMOVED_IDS[@]}"; do
+            removed_line+="${removed_id} (${HA_REMOVED_DATE[${removed_id}]})  "
+        done
+        printf '%b\n' "${FONT_YELLOW}not HA:  ${removed_line}${FONT_RESET}"
+    fi
 
 }
