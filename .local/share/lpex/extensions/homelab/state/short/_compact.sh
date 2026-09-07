@@ -48,7 +48,7 @@ function c_STORE   { enter_column  5 "$@"; }   # STORE     — aggregate storage
 function c_TYPE    { enter_column  6 "$@"; }   # TYPE      — client type: ct-p | ct-u | vm
 function c_DOCK    { enter_column  6 "$@"; }   # DOCK      — docker containers running/total
 function c_CLIENT  { enter_column 30 "$@"; }   # CLIENT    — id + name + uptime (wider than DEVICE)
-function c_HA      { enter_column  4 "$@"; }   # HA        — HA state: on | off | ovr | —
+function c_HA      { enter_column  5 "$@"; }   # HA        — HA state: on | off | ovr | —
 
 
 # ==============================================================================
@@ -675,6 +675,8 @@ function _compact_section_containers {
     # unprotected, and without this they would silently disappear from this section
     if (( ${#HA_REMOVED_IDS[@]} > 0 )); then
         local removed_line="" removed_id
+
+        # Build one space-separated "<id> (<date>)" token per removed container
         for removed_id in "${HA_REMOVED_IDS[@]}"; do
             removed_line+="${removed_id} (${HA_REMOVED_DATE[${removed_id}]})  "
         done

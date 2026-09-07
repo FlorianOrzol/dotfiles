@@ -79,15 +79,19 @@ function action_list {
 # ==============================================================================
 function _list_removed {
     local -a removed_entries
+
+    # Markers live on the share — an unmounted share simply yields an empty list
     _ha_read_removed @removed_entries
 
     # Nothing removed = nothing to report, keep the list output short
     (( ${#removed_entries[@]} == 0 )) && return 0
 
+    # Blank line separates this block from the boot order table above
     printf '\n%b\n' "${FONT_BOLD}  REMOVED FROM HA — running, but no longer restarted${FONT_RESET}"
     printf '%b\n' "${FONT_DIM}  CT-ID      NAME                 REMOVED           BY${FONT_RESET}"
 
     local entry rm_id rm_iso rm_actor rm_reason rm_name rm_date
+    # One row per marker — entries arrive as "<id>|<iso>|<actor>|<reason>"
     for entry in "${removed_entries[@]}"; do
         IFS='|' read -r rm_id rm_iso rm_actor rm_reason <<< "$entry"
 

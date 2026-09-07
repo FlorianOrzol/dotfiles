@@ -115,7 +115,9 @@ function _ha_write_list {
 # @usage       : actor=$(_ha_actor)
 # ==============================================================================
 function _ha_actor {
-    printf '%s@%s' "${USER:-unknown}" "$(hostname -s)"
+    local host_short="${HOSTNAME:-$(uname -n)}"     # bash sets HOSTNAME; uname covers non-bash shells
+
+    printf '%s@%s' "${USER:-unknown}" "${host_short%%.*}"
 }
 
 # --- _ha_mark_removed ---
@@ -170,6 +172,7 @@ function _ha_clear_removed {
     # Silent skip when the share is down — nothing to clean up that we could reach
     [[ -n "$PATH_SHARE_STATE" ]] && share_mounted || return 0
 
+    # Absent marker is the normal case for a CT that was never removed — -f stays quiet
     rm -f "$file_removed"
 }
 
@@ -188,9 +191,15 @@ function _ha_read_removed {
 
     # Glob over all client dirs — only those with a marker are unprotected on purpose
     for file_removed in "${PATH_SHARE_STATE}"/clients/*/"${FILENAME_HA_REMOVED}"; do
+        # An unmatched glob stays literal — skip it instead of parsing the pattern
         [[ -f "$file_removed" ]] || continue
+
+        # The client dir is named after the CT ID — no field in the file carries it
         container_id=$(basename "$(dirname "$file_removed")")
+
+        # Skip a marker that is not valid JSON rather than emitting a broken row
         fields=$(jq -r '[.removed_iso, .actor, .reason] | join("|")' "$file_removed" 2>/dev/null) || continue
+
         return_ha_read_removed+=("${container_id}|${fields}")
     done
 }

@@ -88,7 +88,10 @@ function _status_fetch_ha_removed {
 
     # Glob over all client dirs — only those carrying a marker were removed on purpose
     for file_removed in "${PATH_STATE_CLIENTS}"/*/ha_removed.json; do
+        # An unmatched glob stays literal — skip it instead of parsing the pattern
         [[ -f "${file_removed}" ]] || continue
+
+        # The client dir is named after the CT ID — no field in the file carries it
         container_id=$(basename "$(dirname "${file_removed}")")
         HA_REMOVED_IDS+=("${container_id}")
 
