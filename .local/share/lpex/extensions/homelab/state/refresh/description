@@ -1,0 +1,5 @@
+Re-run the health collectors so the share holds current data
+Targets via --devices: groups (all, hosts, observers, clients) and/or single
+devices (host_1, observer_1, ct_3040, vm_101), freely mixed. Without --devices
+every reachable device is refreshed. Offline devices keep their last known
+status and are never started for a refresh — use --wake-up for that.

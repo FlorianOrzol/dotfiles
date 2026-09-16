@@ -1,2 +1,4 @@
 Homelab status and monitoring commands
-Submodules: overview · dashboard
+Submodules: overview · dashboard · short · refresh
+overview/dashboard/short read status.json from the NFS share; refresh re-runs
+the collectors that write it, for every reachable device.

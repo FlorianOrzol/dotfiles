@@ -22,6 +22,14 @@
 #                                      REBOOT_DELAY_MINUTES in update-os.sh)
 #                     --reboot-force | Reboot each target after its update
 #                                      unconditionally (wins over --reboot)
+#                     --status-refresh     | Refresh the status of the updated
+#                                            devices on the share. This is the
+#                                            default already — passing it also
+#                                            refreshes during a --dry-run.
+#                     --status-refresh-all | Widen the refresh to every device
+#                                            that answers a ping. Offline devices
+#                                            are skipped, never woken — use
+#                                            --wake-up when they should come up.
 #
 # @notes            : Patches (apply-patches.sh) sind hier bewusst NICHT mehr
 #                     angebunden — sie gehören zum geplanten Submodul 'setup patches'.
@@ -57,5 +65,13 @@ function arguments {
     arg_flag @reboot --description "Reboot targets after the update when apt demands it" \
         --depends-on "ARG_DEVICES"
     arg_flag @reboot_force --description "Reboot targets after the update unconditionally" \
+        --depends-on "ARG_DEVICES"
+
+    # 3. --- Status Refresh ------------------------------------------------------
+    # Scope of the post-update status refresh. Neither flag ever wakes a device —
+    # that stays the sole job of --wake-up.
+    arg_flag @status_refresh --description "Refresh status of the updated devices (default; also during --dry-run)" \
+        --depends-on "ARG_DEVICES"
+    arg_flag @status_refresh_all --description "Refresh status of every reachable device, not just the updated ones" \
         --depends-on "ARG_DEVICES"
 }

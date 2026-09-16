@@ -549,6 +549,300 @@ function wake_target {
 }
 
 # ==============================================================================
+# --- Target Expansion ---
+# Resolves group keywords (all, hosts, observers, clients) and single device
+# names into "type:device" pairs. Shared by 'update' and 'state refresh' — both
+# accept the same --devices grammar.
+# ==============================================================================
+SSH_OPTS_LIST="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"    # non-interactive SSH for list queries
+
+# --- collect_targets ---
+# @desc_short  : Expands groups and device names into deduplicated "type:device"
+#                pairs. Group 'all' expands to observers → hosts → clients so
+#                the update order matches the deployment order.
+# @usage       : collect_targets @nameref_targets <input...>
+# @parameter   : $1 | nameref_targets | Array variable to receive the target pairs
+# @parameter   : $@ | inputs          | Groups and/or device names from --devices
+# ==============================================================================
+function collect_targets {
+    local -n return_collect_targets="${1#@}"
+    shift
+    local inputs=("$@")
+    local input
+
+    return_collect_targets=()
+
+    # Map each input to its target pairs — groups expand via list helpers.
+    for input in "${inputs[@]}"; do
+        case "$input" in
+            all)        _targets_append @return_collect_targets "$(_list_observers; _list_hosts; _list_clients)" ;;
+            hosts)      _targets_append @return_collect_targets "$(_list_hosts)" ;;
+            observers)  _targets_append @return_collect_targets "$(_list_observers)" ;;
+            clients)    _targets_append @return_collect_targets "$(_list_clients)" ;;
+            host_*)     return_collect_targets+=("host:${input}") ;;
+            observer_*) return_collect_targets+=("observer:${input}") ;;
+            ct_*)       return_collect_targets+=("container:${input#ct_}") ;;
+            vm_*)       return_collect_targets+=("vm:${input#vm_}") ;;
+            *)  ERROR "Unknown device or group: '${input}' — expected all, hosts, observers, clients, host_*, observer_*, ct_*, or vm_*"
+                return 1 ;;
+        esac
+    done
+
+    # Mixed input like "hosts host_1" may produce duplicates — keep first occurrence.
+    _targets_dedupe @return_collect_targets
+
+    # Abort when nothing was resolved — e.g. 'clients' with all hosts offline.
+    if (( ${#return_collect_targets[@]} == 0 )); then
+        ERROR "No targets resolved from: ${inputs[*]}"
+        return 1
+    fi
+}
+
+# --- _targets_append ---
+# @desc_short  : Appends newline-separated target pairs to the nameref array.
+# @parameter   : $1 | nameref_list | Array variable to append to
+# @parameter   : $2 | lines        | Newline-separated "type:device" pairs
+# ==============================================================================
+function _targets_append {
+    local -n _ta_list="${1#@}"
+    local lines="$2"
+    local line
+
+    # Append each non-empty line as one target pair.
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && _ta_list+=("$line")
+    done <<< "$lines"
+}
+
+# --- _targets_dedupe ---
+# @desc_short  : Removes duplicate entries from the nameref array, keeping order.
+# @parameter   : $1 | nameref_list | Array variable to deduplicate in place
+# ==============================================================================
+function _targets_dedupe {
+    local -n _td_list="${1#@}"
+    local -a unique=()
+    local entry
+
+    # Keep the first occurrence of every entry — preserves the update order.
+    for entry in "${_td_list[@]}"; do
+        [[ " ${unique[*]} " == *" ${entry} "* ]] || unique+=("$entry")
+    done
+    _td_list=("${unique[@]}")
+}
+
+# --- _list_hosts ---
+# @desc_short  : Prints all configured hosts as "host:<name>", one per line.
+# ==============================================================================
+function _list_hosts {
+    # Names come from config — first column of get_hosts ("name # ip").
+    get_hosts | awk '{print "host:"$1}'
+}
+
+# --- _list_observers ---
+# @desc_short  : Prints all configured observers as "observer:<name>", one per line.
+# ==============================================================================
+function _list_observers {
+    # Names come from config — first column of get_observers ("name # ip (role)").
+    get_observers | awk '{print "observer:"$1}'
+}
+
+# --- _list_clients ---
+# @desc_short  : Prints all containers and VMs as "container:<id>" / "vm:<id>".
+# @notes       : Queried live via pct/qm on every reachable host — authoritative
+#                and independent of the NFS live lists (includes stopped clients).
+#                Offline hosts are skipped silently (BatchMode SSH fails fast).
+#                Runs inside $(...) — must not print anything except target pairs.
+# ==============================================================================
+function _list_clients {
+    local host ip user
+
+    # Query each configured host for its containers and VMs.
+    while IFS= read -r host; do
+        # Resolve connection details — skip host on config errors.
+        ip=$(get_device_ip "$host" 2>/dev/null)         || continue
+        user=$(get_device_ssh_user "$host" 2>/dev/null) || continue
+
+        # pct/qm list all clients regardless of state — NR>1 skips the header line.
+        # -n keeps ssh off the loop's stdin, which would swallow the host list.
+        ssh -n ${SSH_OPTS_LIST} "${user}@${ip}" \
+            "pct list 2>/dev/null | awk 'NR>1{print \"container:\"\$1}';
+             qm  list 2>/dev/null | awk 'NR>1{print \"vm:\"\$1}'" 2>/dev/null
+    done < <(get_hosts | awk '{print $1}')
+}
+
+# ==============================================================================
+# --- Status Collectors ---
+# Triggers the health collectors that write status.json to the NFS share, so the
+# share reflects the current state immediately instead of waiting for the daily
+# health timer (06:05 hosts / 06:10 clients). Shared by 'update' (post-update
+# refresh) and 'state refresh' (standalone).
+# ==============================================================================
+CMD_STATUS_HOST="/opt/homelab/bin/hosts/get-host-status.sh"             # host metrics + lxc-status.json
+CMD_STATUS_CLIENTS="/opt/homelab/bin/hosts/get-clients-status.sh"       # per-client status.json, skips stopped clients
+CMD_STATUS_OBSERVER="/opt/homelab/bin/observer/obs-health.sh"           # observer status.json
+
+# --- device_is_online ---
+# @desc_short  : Reports whether a device answers a ping right now.
+# @desc_detailed: Deliberately does NOT use wake_target — that delegates to
+#                 obs-wake.sh and would send a WOL packet. Collecting status must
+#                 never power a device on; an offline host stays offline and keeps
+#                 its last known status on the share.
+# @usage       : device_is_online <device>
+# @parameter   : $1 | device | Logical device name (host_1, observer_2, ...)
+# ==============================================================================
+function device_is_online {
+    local device="$1"
+    local ip
+
+    # A device without a configured IP cannot be probed at all.
+    ip=$(get_device_ip "$device" 2>/dev/null) || return 1
+
+    # Single probe with a short deadline — a sweep must not stall on dead hosts.
+    ping -c 1 -W 2 "$ip" >/dev/null 2>&1
+}
+
+# --- refresh_device_status ---
+# @desc_short  : Re-runs the status collector(s) responsible for one device so the
+#                NFS share reflects its current state immediately.
+# @desc_detailed: Clients have no collector of their own — get-clients-status.sh
+#                 runs on their host and injects a payload via pct exec / qm guest
+#                 exec. A container therefore refreshes through its host, which
+#                 picks up every other running client there in the same run.
+# @notes       : Best-effort — a failed refresh must never fail the caller.
+#                Observers run their collector as fadmin (no sudo!) to keep the
+#                share file ownership identical to the daily timer runs.
+#                The host collector self-heals its NFS mounts (ensure_share_mounted),
+#                so no observer-side mount trigger is needed here.
+# @usage       : refresh_device_status <type> <device>
+# @parameter   : $1 | type   | Device type: observer | host | container | vm
+# @parameter   : $2 | device | Device name or ID
+# ==============================================================================
+function refresh_device_status {
+    local type="$1" device="$2"
+    local host_client
+
+    case "$type" in
+        host)
+            INFO "[${device}] Refreshing host and client status on the share..."
+            execute_on_device "$device" "$CMD_STATUS_HOST" \
+                || WARN "[${device}] Host status refresh failed — next health timer run will catch up."
+            # Same host, second collector — covers every running client on it at once.
+            execute_on_device "$device" "$CMD_STATUS_CLIENTS" \
+                || WARN "[${device}] Client status refresh failed — next health timer run will catch up."
+            ;;
+        observer)
+            INFO "[${device}] Refreshing status.json on the share..."
+            execute_on_device "$device" "$CMD_STATUS_OBSERVER" \
+                || WARN "[${device}] Status refresh failed — next health timer run will catch up."
+            ;;
+        container|vm)
+            # Locate the host running this client — the collector lives there, not in the client.
+            if [[ "$type" == "container" ]]; then
+                host_client=$(find_container_host "$device")
+            else
+                host_client=$(find_vm_host "$device")
+            fi
+
+            # Without a host there is nothing to trigger — stay best-effort and move on.
+            if [[ -z "$host_client" ]]; then
+                WARN "[${type}_${device}] Host not found — status refresh skipped."
+                return 0
+            fi
+
+            INFO "[${type}_${device}] Refreshing client status via ${host_client}..."
+            execute_on_device "$host_client" "$CMD_STATUS_CLIENTS" \
+                || WARN "[${type}_${device}] Client status refresh failed — next health timer run will catch up."
+            ;;
+        # Unknown type indicates a bug in the caller — surface it immediately.
+        *)  ERROR "Unknown device type: '${type}'"
+            return 1 ;;
+    esac
+}
+
+# --- refresh_all_status ---
+# @desc_short  : Refreshes host, client and observer status for every device that
+#                is reachable right now.
+# @desc_detailed: Offline devices are skipped, never woken — a status refresh must
+#                 not power on a host just to read it. Stopped containers and VMs
+#                 need no handling here: get-clients-status.sh skips them by design,
+#                 so a stopped HA clone on the standby can never overwrite the
+#                 status of the running instance.
+# @usage       : refresh_all_status [<device>...]
+# @parameter   : $@ | skip | Devices already refreshed completely by the caller
+# ==============================================================================
+function refresh_all_status {
+    local -a skip=("$@")
+    local -a hosts=() observers=()
+    local device
+
+    # Read both device lists up front — the collectors below run ssh, which would
+    # otherwise consume a while-read loop's stdin and cut the iteration short.
+    mapfile -t hosts     < <(get_hosts     | awk '{print $1}')
+    mapfile -t observers < <(get_observers | awk '{print $1}')
+
+    # Hosts first — their collector also writes lxc-status.json, which the state
+    # views need to show stopped clients.
+    for device in "${hosts[@]}"; do
+        _refresh_if_online "host" "$device" "${skip[@]}"
+    done
+
+    # Observers last — obs-health.sh scans the share for HA overrides and profits
+    # from the host data written above.
+    for device in "${observers[@]}"; do
+        _refresh_if_online "observer" "$device" "${skip[@]}"
+    done
+}
+
+# --- _refresh_if_online ---
+# @desc_short  : Refreshes one device unless it was already done or is offline.
+# @usage       : _refresh_if_online <type> <device> [<skip>...]
+# @parameter   : $1 | type   | Device type: observer | host
+# @parameter   : $2 | device | Logical device name
+# @parameter   : $@ | skip   | Devices the caller already refreshed
+# ==============================================================================
+function _refresh_if_online {
+    local type="$1" device="$2"
+    shift 2
+    local skip=" $* "
+
+    # Already refreshed in this run — a second collector call would only cost SSH time.
+    if [[ "$skip" == *" ${device} "* ]]; then
+        return 0
+    fi
+
+    # Offline devices keep their last known status — never wake them for a refresh.
+    if ! device_is_online "$device"; then
+        INFO "[${device}] Offline — skipped, status on the share stays as it is."
+        return 0
+    fi
+
+    refresh_device_status "$type" "$device"
+}
+
+# ==============================================================================
+# --- shutdown_woken_host ---
+# @desc_short  : Powers a host down again that this run woke up for the update.
+# @desc_detailed: Restores the pre-update power state — a host that was off before
+#                 must not be left running afterwards. Delegates to host-shutdown.sh
+#                 on the primary observer, the same path 'control host power' uses,
+#                 so the observer stays the single power authority and logs the event.
+# @parameter   : $1 | device | Logical host name
+# ==============================================================================
+function shutdown_woken_host {
+    local device="$1"
+
+    INFO "[${device}] Was offline before the update — powering down again via ${OBSERVER_PRIMARY}..."
+
+    # Best-effort: a failed power-down only leaves the host running, which is harmless
+    if ! execute_on_device "$OBSERVER_PRIMARY" "/opt/homelab/bin/hosts/host-shutdown.sh ${device}"; then
+        WARN "[${device}] Power-down failed — host stays online."
+        return 1
+    fi
+
+    OK "[${device}] Powered down again."
+}
+
+# ==============================================================================
 # --- Export block ---
 # argument_completions.sh runs --option-cmd via `bash -c`, which spawns a new process.
 # Bash functions and arrays are NOT inherited — only exported scalars and functions survive.
