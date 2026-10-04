@@ -16,8 +16,10 @@ function arguments {
 
     arg_direct @alias --description "Saved shortcut" --fzf --option-cmd "get_cmd_aliases"
 
-    # ARG_ALIAS is not set during completion — the typed alias is the first token then
+    # ARG_ALIAS is not set during completion — the typed alias is the first token then.
+    # A first token starting with -- is a flag (alias not typed yet), not an alias.
     alias_selected="${ARG_ALIAS:-${ARGS_ENTERED[0]}}"
+    [[ "$alias_selected" == --* ]] && alias_selected=""
 
     # Offer only the devices stored for this alias; the value is baked into the
     # command string because --option-cmd runs in a subshell without ARG_*

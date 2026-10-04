@@ -1,0 +1,18 @@
+Manage all git repositories (public & private) with $HOME as work tree.
+
+  lpex mgit <public|private|all> <action> [repo] …
+
+  list   [repo] [--files]          repositories, remotes, tracked paths
+  status [repo]                    changes + files the next push adds
+  add    <repo> <path>             track a file/directory (safety checks)
+  rm     <repo> <path>             stop tracking (files stay on disk)
+  push   [repo] [--message …]      pick up new files, commit, upload
+  pull   [repo]                    update; clones repositories missing here
+  create <repo> [--local-only]     new repository on the servers + locally
+  git    <repo> <git-args…>        raw git with git-dir/work-tree set
+  check  <repo>                    (public) secret check, used as pre-commit hook
+  apply  [--collect]               (private) install root-owned files, e.g. sudoers
+
+'all' offers list, status, push and pull over both areas.
+Branch = area name (public | private). Servers: lpex --config mgit
+Data: ~/.local/state/lpex/data/mgit/ (git dirs in repos/ are never tracked)

@@ -25,8 +25,10 @@ function arguments {
 
     arg_direct @alias --description "Shortcut to edit" --fzf --option-cmd "get_cmd_aliases"
 
-    # ARG_ALIAS is not set during completion — the typed alias is the first token then
+    # ARG_ALIAS is not set during completion — the typed alias is the first token then.
+    # A first token starting with -- is a flag (alias not typed yet), not an alias.
     alias_selected="${ARG_ALIAS:-${ARGS_ENTERED[0]}}"
+    [[ "$alias_selected" == --* ]] && alias_selected=""
 
     arg_value @new_alias   --description "New alias name"
     arg_value @cmd         --description "New command" --multi

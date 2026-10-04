@@ -1,0 +1,4 @@
+Repositories visible to everyone — content is checked for secrets.
+
+Every add and push of new files asks twice; private keys, tokens and
+credential files are blocked, also for raw commits (pre-commit hook).

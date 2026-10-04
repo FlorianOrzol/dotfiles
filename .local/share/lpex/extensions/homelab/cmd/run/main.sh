@@ -9,6 +9,9 @@
 # @desc_short  : Validates, runs the command and saves it on success.
 # ==============================================================================
 function extension_start {
+    # Manual runs get a remote terminal — scripts may prompt (e.g. passwords)
+    EXECUTE_INTERACTIVE=1
+
     local device="$ARG_DEVICE"
     local cmd="${ARG_CMD[*]}"           # --multi delivers words — join them back
     local exit_code

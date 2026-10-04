@@ -157,19 +157,37 @@ function get_cmd_aliases {
 }
 
 # --- get_cmd_alias_devices ---
-# @desc_short  : Prints the devices stored for one alias, one per line.
-# @usage       : get_cmd_alias_devices <alias>
-# @parameter   : $1 | alias | Saved alias name
+# @desc_short  : Prints the devices of one shortcut — or of all shortcuts — with live info.
+# @usage       : get_cmd_alias_devices [alias]
+# @parameter   : $1 | alias | Saved alias name; empty = devices of every shortcut
+# @notes       : Output "ct_3080 # mqtt - running" — the same line get_cmd_devices
+#                prints, so the fzf list looks alike everywhere. Devices without a
+#                live entry (stopped host, deleted CT) are marked "not live".
 # ==============================================================================
 function get_cmd_alias_devices {
     local alias="$1"
+    local sql_where="1=1"                   # empty alias: every shortcut
+    local devices_live device line_live
 
-    # Without a database or an alias there is nothing to list
-    [[ -f "$FILE_CMDS_DB" && -n "$alias" ]] || return 0
+    # No database yet means no shortcuts — an empty list, not an error
+    [[ -f "$FILE_CMDS_DB" ]] || return 0
 
     # Double single quotes so an alias containing ' cannot break the SQL
-    sqlite3 "$FILE_CMDS_DB" \
-        "SELECT devices FROM ${TABLE_CMDS} WHERE alias='${alias//\'/\'\'}';" 2>/dev/null | tr ' ' '\n'
+    [[ -n "$alias" ]] && sql_where="alias='${alias//\'/\'\'}'"
+
+    # One snapshot of the live list instead of one lookup per device
+    devices_live=$(get_cmd_devices)
+
+    # devices is space-separated per row — one per line, each device once
+    while IFS= read -r device; do
+        # Skip blank lines from empty device columns
+        [[ -z "$device" ]] && continue
+
+        # Reuse the live line of this device; fall back to a plain marker
+        line_live=$(grep -m1 "^${device} #" <<< "$devices_live")
+        echo "${line_live:-${device} # not live}"
+    done < <(sqlite3 "$FILE_CMDS_DB" "SELECT devices FROM ${TABLE_CMDS} WHERE ${sql_where};" 2>/dev/null \
+             | tr ' ' '\n' | sort -u)
 }
 
 # --- cmd_db_init ---
@@ -221,6 +239,24 @@ function cmd_validate_devices {
             return 1
         fi
     done
+}
+
+# --- cmd_alias_exists ---
+# @desc_short  : Returns 0 when a shortcut with this alias is saved — no output.
+# @usage       : cmd_alias_exists <alias> && …
+# @parameter   : $1 | alias | Alias name to look up
+# ==============================================================================
+function cmd_alias_exists {
+    local alias="$1"
+    local id_found
+
+    # Empty names never exist — skip the query
+    [[ -n "$alias" ]] || return 1
+
+    # Lookup by alias — the id is only a presence marker
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select @id_found \
+        --cols "id" --where "alias='${alias//\'/\'\'}'" --limit 1
+    [[ -n "$id_found" ]]
 }
 
 # --- cmd_read_alias ---
@@ -362,6 +398,23 @@ function get_device_ssh_user {
     return 1
 }
 
+# --- _ssh_tty_opts ---
+# @desc_short  : Prints the ssh options for a remote terminal, or nothing.
+# @usage       : ssh $(_ssh_tty_opts) user@ip …
+# @notes       : Only when the caller set EXECUTE_INTERACTIVE=1 (cmd run/alias in a
+#                terminal). A remote tty lets scripts prompt, e.g. hidden password
+#                input. Other callers (update, setup) stay without tty: a pty
+#                merges stderr into stdout and adds CR to captured output.
+#                LogLevel=ERROR hides the "Connection to … closed." line of -t.
+# ==============================================================================
+function _ssh_tty_opts {
+    # Interactive only on request and only with a terminal for input and output.
+    # stderr, not stdout: this runs inside $(…), where stdout is always a pipe.
+    if [[ "${EXECUTE_INTERACTIVE:-0}" == "1" && -t 0 && -t 2 ]]; then
+        echo "-t -o LogLevel=ERROR"
+    fi
+}
+
 # --- execute_on_device ---
 # @desc_short  : Executes a command on a remote device via SSH.
 # @usage       : execute_on_device <device> <cmd>
@@ -382,7 +435,7 @@ function execute_on_device {
     user=$(get_device_ssh_user "$device") || return 1
 
     # Quote once for the local bash -c — the remote shell then sees cmd verbatim
-    lx cmd --run "ssh ${user}@${ip} $(printf '%q' "$cmd")"
+    lx cmd --run "ssh $(_ssh_tty_opts) ${user}@${ip} $(printf '%q' "$cmd")"
 }
 
 # --- find_container_host ---
@@ -505,7 +558,7 @@ function execute_on_container {
     # Two quoting levels: %q for sh -c inside the container, %q for the local bash -c
     cmd_host="pct exec ${container_id} -- sh -c $(printf '%q' "$cmd")"
     INFO "ct_${container_id} (${host}): ${cmd}"
-    lx cmd --run "ssh ${user}@${ip} $(printf '%q' "$cmd_host")"
+    lx cmd --run "ssh $(_ssh_tty_opts) ${user}@${ip} $(printf '%q' "$cmd_host")"
 }
 
 # --- get_vm_ip ---

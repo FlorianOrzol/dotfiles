@@ -1,0 +1,1 @@
+Checks staged files for secrets (pre-commit hook).

@@ -204,8 +204,10 @@ end
 function __fish_rbw_get_completion_fields
     set -l cmd (commandline -xpc)
     set -e cmd[1] # rbw
-    if test -z "$(commandline -xpt)"
-        set -e cmd[-1] # -f/--field
+    # fish 4: -xpc never contains the token being completed, so the option
+    # itself is always the last element — drop it whether a value was started or not
+    if contains -- "$cmd[-1]" -f --field
+        set -e cmd[-1]
     end
 
     argparse -i folder= f/field= full raw clipboard i/ignorecase h/help l/list-fields -- $cmd

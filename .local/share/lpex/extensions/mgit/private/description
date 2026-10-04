@@ -1,0 +1,3 @@
+Private repositories on the own server.
+
+No secret checks. 'apply' installs root-owned files from the data zone.
