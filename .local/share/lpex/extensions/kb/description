@@ -1,0 +1,14 @@
+Personal knowledge base — Markdown notes, fzf browser with preview.
+
+  kb                         browser: enter view · ctrl-e edit · ctrl-n new (query = name)
+                             ctrl-x delete · ctrl-y copy · ctrl-d full text · ctrl-f list
+  kb <topic/name>            show an entry (glow)
+  kb new  <topic/name>       create from template in nvim
+  kb edit <topic/name>       edit in nvim
+  kb rm   <topic/name>       delete after confirmation
+  kb search <text…>          full text search in the browser
+  kb list                    all entries with titles
+
+Entries: ~/.local/state/lpex/data/kb/<topic>/<name>.md (backed up with the private state repo).
+Never store passwords or tokens here — note the Vaultwarden entry instead,
+e.g. rbw get 'client - forgejo' --field mgit-token
