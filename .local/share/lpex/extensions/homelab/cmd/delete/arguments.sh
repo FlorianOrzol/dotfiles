@@ -5,15 +5,12 @@
 # ==============================================================================
 
 # --- function arguments ---
-# @desc_short  : Registers CLI arguments for deleting a saved command entry.
-# @usage       : lpex homelab cmd delete --alias <name> --device <device>
+# @desc_short  : Registers CLI arguments for deleting a saved shortcut.
+# @usage       : lpex homelab cmd delete <alias>
 #
-# @options     : --alias   | Alias to delete, shown with device context (required)
-#                --device  | Target device the alias is saved for (required)
+# @options     : <alias> | Shortcut to delete (positional, fzf)
+# @notes       : Removing single devices is 'cmd edit <alias> --remove-device'.
 # ==============================================================================
 function arguments {
-    arg_value @alias  --description "Alias to delete" --fzf \
-                          --option-cmd "get_cmd_aliases"
-    arg_value @device --description "Target device" --fzf --multi\
-                          --option-cmd "get_all_devices"
+    arg_direct @alias --description "Shortcut to delete" --fzf --option-cmd "get_cmd_aliases"
 }

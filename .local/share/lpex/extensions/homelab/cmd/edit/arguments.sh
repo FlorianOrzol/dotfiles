@@ -5,34 +5,35 @@
 # ==============================================================================
 
 # --- function arguments ---
-# @desc_short  : Registers CLI arguments for editing a saved command entry.
-# @usage       : lpex homelab cmd edit --alias <name> [--new-alias <name>] [--cmd <command>]
-#                                      [--description <text>] [--add-device <device(s)>]
-#                                      [--remove-device <device(s)>]
+# @desc_short  : Registers CLI arguments for editing a saved shortcut.
+# @usage       : lpex homelab cmd edit <alias> [--new-alias <name>] [--cmd <command>]
+#                                      [--description <text>] [--add-device <device...>]
+#                                      [--remove-device <device...>]
 #
-# @options     : --alias         | Alias of the entry to edit (required)
-#                --new-alias     | Rename the alias (optional, pre-filled with current value)
-#                --cmd           | Replace the command (optional, pre-filled with current value)
-#                --description   | Replace the description (optional, pre-filled with current value)
-#                --add-device    | Add one or more devices (optional, multi-select)
-#                --remove-device | Remove one or more devices (optional, multi-select)
+# @options     : <alias>         | Shortcut to edit (positional, fzf)
+#                --new-alias     | Rename the shortcut
+#                --cmd           | Replace the command
+#                --description   | Replace the description
+#                --add-device    | Add device(s)
+#                --remove-device | Remove device(s) — at least one must remain
+# @notes       : Without any option the whole entry opens in $EDITOR.
+#                No --depends-on "ARG_ALIAS": the alias is positional, so '--alias'
+#                never appears in the typed tokens and completion would hide all options.
 # ==============================================================================
 function arguments {
-    arg_value @alias         --description "Alias of the command to edit" --fzf \
-                                 --option-cmd "get_cmd_aliases"
-    arg_value @new_alias     --description "New alias name" \
-                                 --depends-on "ARG_ALIAS" \
-                                 --option-cmd "get_cmd_current_alias"
-    arg_value @cmd           --description "New command" \
-                                 --depends-on "ARG_ALIAS" \
-                                 --option-cmd "get_cmd_current_cmd"
-    arg_value @description   --description "New description" \
-                                 --depends-on "ARG_ALIAS" \
-                                 --option-cmd "get_cmd_current_description"
-    arg_value @add_device    --description "Add device(s)" --multi \
-                                 --depends-on "ARG_ALIAS" \
-                                 --option-cmd "get_all_devices"
+    local alias_selected
+
+    arg_direct @alias --description "Shortcut to edit" --fzf --option-cmd "get_cmd_aliases"
+
+    # ARG_ALIAS is not set during completion — the typed alias is the first token then
+    alias_selected="${ARG_ALIAS:-${ARGS_ENTERED[0]}}"
+
+    arg_value @new_alias   --description "New alias name"
+    arg_value @cmd         --description "New command" --multi
+    arg_value @description --description "New description"
+
+    # Adding offers every device, removing only the ones stored for this alias
+    arg_value @add_device    --description "Add device(s)" --multi --option-cmd "get_cmd_devices"
     arg_value @remove_device --description "Remove device(s)" --multi \
-                                 --depends-on "ARG_ALIAS" \
-                                 --option-cmd "get_cmd_current_devices"
+        --option-cmd "get_cmd_alias_devices $(printf '%q' "$alias_selected")"
 }

@@ -22,12 +22,22 @@ CMD_UPDATE="/opt/homelab/bin/update/update-os.sh"                       # runs f
 # @parameter   : $3 | dry_run      | Non-empty = show upgradable packages only, no changes
 # @parameter   : $4 | reboot       | Non-empty = reboot the device when apt demands it
 # @parameter   : $5 | reboot_force | Non-empty = reboot the device unconditionally
+# @exit_codes  : 0 | Update (or dry-run) succeeded.
+# @exit_codes  : 1 | Update failed.
+# @exit_codes  : 2 | Skipped — the container has no update-os.sh deployed.
 # ==============================================================================
 function update_device {
     local type="$1" device="$2" dry_run="$3" reboot="$4" reboot_force="$5"
     local cmd_update
 
     INFO "[${device}] Starting update..."
+
+    # Containers only get update-os.sh with their mirror — without it the update
+    # cannot run, which is a deployment gap and not an update failure
+    if [[ -z "$dry_run" && "$type" == "container" ]] && ! _container_has_update_script "$device"; then
+        WARN "[ct_${device}] No ${CMD_UPDATE} deployed — skipped."
+        return 2
+    fi
 
     # Dry-run only lists upgradable packages without touching the system.
     # Full run calls update-os.sh which runs apt update + apt dist-upgrade;
@@ -73,4 +83,19 @@ function _execute_update {
         # Unknown type indicates a bug in the caller — surface it immediately.
         *)             ERROR "Unknown device type: '${type}'"; return 1 ;;
     esac
+}
+
+# --- _container_has_update_script ---
+# @desc_short  : Returns 0 when the running container has update-os.sh installed.
+# @usage       : _container_has_update_script <container_id>
+# @notes       : A stopped container counts as "has script" — the update then fails
+#                with its own clear error instead of being reported as a gap.
+# ==============================================================================
+function _container_has_update_script {
+    local container_id="$1"
+    local answer
+
+    # Probe inside the running instance — prints yes/no, nothing when not running
+    answer=$(run_script_on_target "container" "$container_id" "test -x ${CMD_UPDATE} && echo yes || echo no")
+    [[ "$answer" != "no" ]]
 }

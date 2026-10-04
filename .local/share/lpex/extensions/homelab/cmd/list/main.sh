@@ -1,40 +1,28 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : main.sh
-# @desc_short       : Lists saved command entries from the commands database.
+# @desc_short       : Lists saved shortcuts as a table.
 # ==============================================================================
-
-# ==============================================================================
-# --- Script Internals ---
-# ==============================================================================
-DB_FILE="cmds.db"       # database file, resolved relative to PATH_EXTENSION_DATA
-DB_TABLE="commands"     # table name for stored commands
 
 # ==============================================================================
 # --- extension_start ---
+# @desc_short  : Prints all shortcuts, optionally only those of one device.
 # ==============================================================================
 function extension_start {
-    action_list
-}
+    local where="1=1"                   # no filter: every row
 
-# ==============================================================================
-# --- action_list ---
-# @desc_short  : Queries the DB with optional filters and prints a formatted table.
-# @usage       : action_list
-# ==============================================================================
-function action_list {
-    local where=""
-
-    # Build WHERE clause from provided filters
-    [[ -n "$ARG_DEVICE" ]] && where="device='${ARG_DEVICE}'"
-    [[ -n "$ARG_ALIAS" ]]  && where="${where:+${where} AND }alias='${ARG_ALIAS}'"
-
-    # Run query — lx db without @var prints a formatted table to stdout
-    if [[ -n "$where" ]]; then
-        lx db --file "$DB_FILE" --table "$DB_TABLE" --select --where "$where" \
-            --sort "device ASC, alias ASC"
-    else
-        lx db --file "$DB_FILE" --table "$DB_TABLE" --select \
-            --sort "device ASC, alias ASC"
+    # Nothing saved yet — say so instead of printing an empty table
+    if [[ ! -f "$FILE_CMDS_DB" ]]; then
+        INFO "No saved commands yet — 'lpex homelab cmd save' or 'cmd run --save'."
+        return 0
     fi
+
+    # devices is space-separated: pad with spaces so 'ct_30' never matches 'ct_3040'
+    if [[ -n "$ARG_DEVICE" ]]; then
+        where="(' ' || devices || ' ') LIKE '% ${ARG_DEVICE} %'"
+    fi
+
+    # Without @var lx db prints a formatted table to stdout
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select \
+        --cols "alias,devices,cmd,description" --where "$where" --sort "alias ASC"
 }

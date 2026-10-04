@@ -1,0 +1,12 @@
+Run commands on devices and manage saved command shortcuts.
+Devices: host_N, observer_N, ct_<id>, vm_<id> — containers/VMs run via their current host (pct exec / qm guest exec).
+
+  run <device> --cmd "…" [--save <alias>]   run once, optionally keep it as shortcut
+  alias <alias> [--device …]                run a saved shortcut (default: all its devices)
+  save <alias> --cmd "…" --device …         save without running
+  list [--device …]                         show saved shortcuts
+  edit <alias> [--cmd … | --description … | --new-alias … | --add-device … | --remove-device …]
+                                            without options: edit the whole entry in $EDITOR
+  delete <alias>                            remove a shortcut
+
+Observers log in as fadmin — prefix commands that need root with sudo.

@@ -16,10 +16,13 @@
 #                       host_1, observer_1, ct_3040, vm_101 → single devices
 #
 # @options          : --dry-run      | Show upgradable packages only — no actual update
-#                     --wake-up      | Wake/start offline targets before updating
+#                     --wake-up      | Wake/start offline targets before updating —
+#                                      woken hosts are powered down and woken
+#                                      clients stopped again at the end
 #                     --reboot       | Reboot each target after its update when apt
 #                                      demands it (delayed on the device, see
-#                                      REBOOT_DELAY_MINUTES in update-os.sh)
+#                                      REBOOT_DELAY_MINUTES in update-os.sh); the
+#                                      run waits for it and checks the device
 #                     --reboot-force | Reboot each target after its update
 #                                      unconditionally (wins over --reboot)
 #                     --status-refresh     | Refresh the status of the updated
@@ -31,6 +34,9 @@
 #                                            are skipped, never woken — use
 #                                            --wake-up when they should come up.
 #
+# @notes            : The pre-update power state is always restored: clients a host
+#                     reboot took down are started again. A result table closes
+#                     every run.
 # @notes            : Patches (apply-patches.sh) sind hier bewusst NICHT mehr
 #                     angebunden — sie gehören zum geplanten Submodul 'setup patches'.
 # ==============================================================================

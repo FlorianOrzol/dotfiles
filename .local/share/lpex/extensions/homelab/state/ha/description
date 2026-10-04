@@ -1,0 +1,3 @@
+Show the HA boot order, live status, overrides and containers removed from HA
+Read-only — data comes from the NFS share (ha_clients, ha_override.json,
+ha_removed.json), no SSH. Changes to the list: 'lpex homelab setup ha'.

@@ -1,20 +1,22 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : arguments.sh
-# @desc_short       : CLI argument definitions for 'ha' (HA list & boot order).
+# @desc_short       : CLI argument definitions for 'setup ha' (boot order changes).
 # ==============================================================================
 
 # --- function arguments ---
-# @desc_short       : Registers CLI arguments for HA client list management.
-# @usage            : lpex homelab ha [action]
+# @desc_short       : Registers CLI arguments for HA client list changes.
+# @usage            : lpex homelab setup ha <action>
 #
-# @actions          : (none)            → show HA list in boot order
-#                     --add <id>        → append container to HA (end of boot order)
-#                     --remove <id>     → remove container from HA
+# @actions          : --add <id>             → append container to HA (end of boot order)
+#                     --remove <id>          → remove container from HA
 #                     --move <id> --to <pos> → reposition container in the boot order
-#                     --edit            → edit the full boot order list in $EDITOR
+#                     --edit                 → edit the full boot order list in $EDITOR
 #
 # @options          : --reason <text>   → recorded with the removal (only with --remove)
+#
+# @notes            : Read-only display (current boot order, HA overrides, containers
+#                     removed from HA) moved to 'lpex homelab state ha'.
 # ==============================================================================
 function arguments {
     arg_value @add    --description "Container ID to add to HA (appended to boot order)"  --fzf --option-cmd "get_containers"

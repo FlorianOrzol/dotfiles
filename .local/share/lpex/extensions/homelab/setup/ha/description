@@ -1,0 +1,6 @@
+Change the HA boot order list (add / remove / move / edit)
+Source of truth: /opt/homelab/state/ha_clients on the observers, line order =
+boot order. Every change writes both observers and the NFS share, and logs an
+observer event. --remove leaves a permanent ha_removed.json marker on the
+share so the container stays visible as unprotected until it is added back.
+Display of the current list: 'lpex homelab state ha'.

@@ -119,68 +119,179 @@ function get_vms {
     cat "$FILE_VM_LIVE"                     # emit VM names from live file
 }
 
-# --- get_cmd_current_alias ---
-# @desc_short  : Prints the alias of the currently selected entry (pre-fill for edit).
-# @usage       : get_cmd_current_alias
 # ==============================================================================
-function get_cmd_current_alias {
-    local value
-    lx db --file "cmds.db" --table "commands" --select @value \
-        --cols "alias" --where "alias='${ARG_ALIAS}'" --limit 1
-    echo "$value"
-}
+# --- Command Shortcuts (cmd) ---
+# Lookups for 'lpex homelab cmd'. They run as --option-cmd inside `bash -c`,
+# where neither lx nor ARG_* exist — hence plain sqlite3 on an exported absolute
+# path, and the selected alias is passed as parameter instead of read from ARG_*.
+# ==============================================================================
+FILE_CMDS_DB="${PATH_EXTENSION_DATA}/cmds.db"   # saved shortcuts — absolute, subshells have no lx db path logic
+TABLE_CMDS="commands"                            # one row per alias, devices space-separated
 
-# --- get_cmd_current_cmd ---
-# @desc_short  : Prints the cmd of the currently selected entry (pre-fill for edit).
-# @usage       : get_cmd_current_cmd
+# --- get_cmd_devices ---
+# @desc_short  : Prints every addressable device in the cmd naming scheme, one per line.
+# @usage       : get_cmd_devices
+# @notes       : Same names as collect_targets and 'files': host_N, observer_N,
+#                ct_<id>, vm_<id>. The live lists carry bare IDs, so they get the prefix.
 # ==============================================================================
-function get_cmd_current_cmd {
-    local value
-    lx db --file "cmds.db" --table "commands" --select @value \
-        --cols "cmd" --where "alias='${ARG_ALIAS}'" --limit 1
-    echo "$value"
-}
+function get_cmd_devices {
+    get_nodes                               # "host_1 # 10.0.101.1", "observer_1 # ... (primary)"
 
-# --- get_cmd_current_description ---
-# @desc_short  : Prints the description of the currently selected entry (pre-fill for edit).
-# @usage       : get_cmd_current_description
-# ==============================================================================
-function get_cmd_current_description {
-    local value
-    lx db --file "cmds.db" --table "commands" --select @value \
-        --cols "description" --where "alias='${ARG_ALIAS}'" --limit 1
-    echo "$value"
-}
+    # "3080 # mqtt - running" becomes "ct_3080 # mqtt - running"
+    get_containers | sed 's/^/ct_/'
 
-# --- get_cmd_current_devices ---
-# @desc_short  : Prints all devices that have the currently selected alias, one per line.
-# @usage       : get_cmd_current_devices
-# ==============================================================================
-function get_cmd_current_devices {
-    declare -a rows
-    lx db --file "cmds.db" --table "commands" --select @rows \
-        --cols "device" --where "alias='${ARG_ALIAS}'"
-    printf '%s\n' "${rows[@]}"
+    # Same for VMs
+    get_vms | sed 's/^/vm_/'
 }
 
 # --- get_cmd_aliases ---
-# @desc_short  : Prints all saved command aliases with their device as "alias # device", one per line.
+# @desc_short  : Prints all saved shortcuts as "alias # devices — description".
 # @usage       : get_cmd_aliases
 # ==============================================================================
 function get_cmd_aliases {
-    declare -a rows
-    lx db --file "cmds.db" --table "commands" --select @rows --cols "alias,device" --sep " # "
-    printf '%s\n' "${rows[@]}"
+    # No database yet means no shortcuts — an empty list, not an error
+    [[ -f "$FILE_CMDS_DB" ]] || return 0
+
+    sqlite3 -separator ' # ' "$FILE_CMDS_DB" \
+        "SELECT alias, devices || ' — ' || COALESCE(description, '') FROM ${TABLE_CMDS} ORDER BY alias;" 2>/dev/null
 }
 
-# --- get_all_devices ---
-# @desc_short  : Prints all known device names (nodes + containers + VMs), one per line.
-# @usage       : get_all_devices
+# --- get_cmd_alias_devices ---
+# @desc_short  : Prints the devices stored for one alias, one per line.
+# @usage       : get_cmd_alias_devices <alias>
+# @parameter   : $1 | alias | Saved alias name
 # ==============================================================================
-function get_all_devices {
-    get_nodes                               # physical nodes (hosts + observers)
-    get_containers                          # live containers
-    get_vms                                 # live VMs
+function get_cmd_alias_devices {
+    local alias="$1"
+
+    # Without a database or an alias there is nothing to list
+    [[ -f "$FILE_CMDS_DB" && -n "$alias" ]] || return 0
+
+    # Double single quotes so an alias containing ' cannot break the SQL
+    sqlite3 "$FILE_CMDS_DB" \
+        "SELECT devices FROM ${TABLE_CMDS} WHERE alias='${alias//\'/\'\'}';" 2>/dev/null | tr ' ' '\n'
+}
+
+# --- cmd_db_init ---
+# @desc_short  : Creates the shortcut table if it does not exist yet.
+# @usage       : cmd_db_init
+# ==============================================================================
+function cmd_db_init {
+    # alias is UNIQUE: one shortcut = one command for one or more devices
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --create-table \
+        --cols "id INTEGER PRIMARY KEY, alias TEXT NOT NULL UNIQUE, cmd TEXT NOT NULL, devices TEXT NOT NULL, description TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP"
+}
+
+# --- cmd_validate_alias ---
+# @desc_short  : Checks an alias name for allowed characters.
+# @usage       : cmd_validate_alias <alias>
+# @parameter   : $1 | alias | Alias name to check
+# @notes       : No whitespace — the alias is a positional CLI argument.
+# ==============================================================================
+function cmd_validate_alias {
+    local alias="$1"
+
+    # Letters, digits, dot, underscore and dash only
+    if [[ ! "$alias" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        ERROR "Invalid alias '${alias}' — use letters, digits, '.', '_' or '-' (no spaces)."
+        return 1
+    fi
+}
+
+# --- cmd_validate_devices ---
+# @desc_short  : Checks device names against the cmd naming scheme.
+# @usage       : cmd_validate_devices <device...>
+# @parameter   : $@ | devices | Device names to check
+# @notes       : Only the scheme is checked, not reachability — a saved shortcut
+#                may target a device that is offline right now.
+# ==============================================================================
+function cmd_validate_devices {
+    local device
+
+    # At least one device is required for a shortcut
+    if (( $# == 0 )); then
+        ERROR "No device specified."
+        return 1
+    fi
+
+    # Every name must match one of the four prefixes
+    for device in "$@"; do
+        if [[ ! "$device" =~ ^(host|observer|ct|vm)_[0-9]+$ ]]; then
+            ERROR "Invalid device '${device}' — expected host_N, observer_N, ct_<id> or vm_<id>."
+            return 1
+        fi
+    done
+}
+
+# --- cmd_read_alias ---
+# @desc_short  : Loads one shortcut into CMD_ID, CMD_CMD, CMD_DEVICES, CMD_DESCRIPTION.
+# @usage       : cmd_read_alias <alias> || return 1
+# @parameter   : $1 | alias | Alias name to load
+# ==============================================================================
+function cmd_read_alias {
+    local alias="$1"
+    local where="alias='${alias//\'/\'\'}'"     # SQL literal, single quotes doubled
+
+    CMD_ID="" CMD_CMD="" CMD_DEVICES="" CMD_DESCRIPTION=""
+
+    # One select per column — a command may contain any separator character
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select @CMD_ID          --cols "id"          --where "$where" --limit 1
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select @CMD_CMD         --cols "cmd"         --where "$where" --limit 1
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select @CMD_DEVICES     --cols "devices"     --where "$where" --limit 1
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select @CMD_DESCRIPTION --cols "description" --where "$where" --limit 1
+
+    # No id means no such alias
+    if [[ -z "$CMD_ID" ]]; then
+        ERROR "No saved command '${alias}' — see 'lpex homelab cmd list'."
+        return 1
+    fi
+}
+
+# --- cmd_save_alias ---
+# @desc_short  : Validates and inserts a new shortcut.
+# @usage       : cmd_save_alias <alias> <cmd> <description> <device...>
+# @parameter   : $1 | alias       | New alias name (must not exist yet)
+# @parameter   : $2 | cmd         | Command to store
+# @parameter   : $3 | description | Optional description (may be empty)
+# @parameter   : $@ | devices     | Remaining arguments: target devices
+# ==============================================================================
+function cmd_save_alias {
+    local alias="$1"
+    local cmd="$2"
+    local description="$3"
+    shift 3
+    local devices=("$@")
+    local id_existing
+
+    # Reject malformed names before touching the database
+    cmd_validate_alias "$alias"           || return 1
+    cmd_validate_devices "${devices[@]}"  || return 1
+
+    # An empty command would turn the shortcut into a no-op
+    if [[ -z "$cmd" ]]; then
+        ERROR "No command specified."
+        return 1
+    fi
+
+    # First save on a fresh system — the table may not exist yet
+    cmd_db_init
+
+    # Aliases are unique — changing an existing one is 'cmd edit'
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --select @id_existing \
+        --cols "id" --where "alias='${alias//\'/\'\'}'" --limit 1
+    if [[ -n "$id_existing" ]]; then
+        ERROR "Alias '${alias}' already exists — use 'lpex homelab cmd edit ${alias}'."
+        return 1
+    fi
+
+    # Devices are stored space-separated in one column
+    if ! lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --insert \
+            --data "alias" "$alias" "cmd" "$cmd" "devices" "${devices[*]}" "description" "$description"; then
+        ERROR "Saving '${alias}' failed."
+        return 1
+    fi
+
+    OK "Saved '${alias}' for ${devices[*]}."
 }
 
 # ==============================================================================
@@ -256,6 +367,10 @@ function get_device_ssh_user {
 # @usage       : execute_on_device <device> <cmd>
 # @parameter   : $1 | device | Logical device name.
 # @parameter   : $2 | cmd    | Shell command to execute remotely.
+# @notes       : The command is passed as ONE %q-quoted word. lx cmd runs its
+#                string through `bash -c`; the former '${cmd}' wrapping broke on
+#                every command that contained a single quote itself — the quote
+#                closed the wrapper and the rest was parsed locally (globs, JSON).
 # ==============================================================================
 function execute_on_device {
     local device="$1"
@@ -266,7 +381,8 @@ function execute_on_device {
     ip=$(get_device_ip "$device")     || return 1
     user=$(get_device_ssh_user "$device") || return 1
 
-    lx cmd --run "ssh ${user}@${ip} '${cmd}'"
+    # Quote once for the local bash -c — the remote shell then sees cmd verbatim
+    lx cmd --run "ssh ${user}@${ip} $(printf '%q' "$cmd")"
 }
 
 # --- find_container_host ---
@@ -325,6 +441,37 @@ function find_vm_host {
     return 1
 }
 
+# --- client_running_host ---
+# @desc_short  : Prints the host on which a container/VM is currently running.
+# @usage       : client_running_host <type> <client_id>
+# @parameter   : $1 | type      | Client type: container | vm
+# @parameter   : $2 | client_id | Proxmox container/VM ID
+# @notes       : Unlike find_container_host/find_vm_host this looks at the run state,
+#                not at existence — HA clones exist on both hosts but run on one.
+#                Prints nothing when the client runs nowhere (or all hosts are down).
+# ==============================================================================
+function client_running_host {
+    local type="$1" client_id="$2"
+    local host ip user cmd_status
+
+    # pct and qm share the 'status: running' output format
+    cmd_status="pct status ${client_id}"
+    [[ "$type" == "vm" ]] && cmd_status="qm status ${client_id}"
+
+    # First host reporting the client as running wins — there is only one by design
+    for host in "${HOSTS[@]}"; do
+        ip=$(get_device_ip "$host" 2>/dev/null)         || continue
+        user=$(get_device_ssh_user "$host" 2>/dev/null) || continue
+
+        # -n: never let ssh consume the caller's stdin (read loops)
+        if ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+                "${user}@${ip}" "${cmd_status} 2>/dev/null | grep -q running" 2>/dev/null; then
+            echo "$host"
+            return 0
+        fi
+    done
+}
+
 # ==============================================================================
 # --- Container / VM Execution ---
 # Higher-level execute helpers for indirect device access (via host).
@@ -335,18 +482,30 @@ function find_vm_host {
 # @usage       : execute_on_container <container_id> <cmd>
 # @parameter   : $1 | container_id | Proxmox container ID.
 # @parameter   : $2 | cmd          | Command to run inside the container.
+# @notes       : Runs on the host where the container RUNS — HA clones exist on
+#                both hosts, the stopped copy would only answer "not running".
+#                The command goes through 'sh -c' inside the container: without
+#                it, '&&', pipes and redirects were executed on the HOST.
+#                sh, not bash — Alpine containers (vaultwarden) have no bash.
 # ==============================================================================
 function execute_on_container {
     local container_id="$1"
     local cmd="$2"
-    local host ip user
+    local host ip user cmd_host
 
-    # Locate which host is running this container
-    host=$(find_container_host "$container_id") || return 1
+    # Locate the host that currently runs this container
+    host=$(client_running_host container "$container_id")
+    if [[ -z "$host" ]]; then
+        ERROR "Container '${container_id}' is not running on any host."
+        return 1
+    fi
     ip=$(get_device_ip "$host")                  || return 1
     user=$(get_device_ssh_user "$host")          || return 1
 
-    lx cmd --run "ssh ${user}@${ip} 'pct exec ${container_id} -- ${cmd}'" --show-cmd
+    # Two quoting levels: %q for sh -c inside the container, %q for the local bash -c
+    cmd_host="pct exec ${container_id} -- sh -c $(printf '%q' "$cmd")"
+    INFO "ct_${container_id} (${host}): ${cmd}"
+    lx cmd --run "ssh ${user}@${ip} $(printf '%q' "$cmd_host")"
 }
 
 # --- get_vm_ip ---
@@ -384,17 +543,50 @@ function get_vm_ip {
 # @parameter   : $1 | vm_id | Proxmox VM ID.
 # @parameter   : $2 | cmd   | Command to run inside the VM.
 # @notes       : Requires QEMU guest agent. For file operations use SSH ProxyJump instead.
+#                Same quoting and running-host rules as execute_on_container.
+#                qm guest exec answers with JSON (exitcode, out-data).
 # ==============================================================================
 function execute_on_vm {
     local vm_id="$1"
     local cmd="$2"
-    local host ip user
+    local host ip user cmd_host
 
-    host=$(find_vm_host "$vm_id")        || return 1
+    # Locate the host that currently runs this VM
+    host=$(client_running_host vm "$vm_id")
+    if [[ -z "$host" ]]; then
+        ERROR "VM '${vm_id}' is not running on any host."
+        return 1
+    fi
     ip=$(get_device_ip "$host")           || return 1
     user=$(get_device_ssh_user "$host")   || return 1
 
-    lx cmd --run "ssh ${user}@${ip} 'qm guest exec ${vm_id} -- ${cmd}'" --show-cmd
+    # Two quoting levels: %q for sh -c inside the VM, %q for the local bash -c
+    cmd_host="qm guest exec ${vm_id} -- sh -c $(printf '%q' "$cmd")"
+    INFO "vm_${vm_id} (${host}): ${cmd}"
+    lx cmd --run "ssh ${user}@${ip} $(printf '%q' "$cmd_host")"
+}
+
+# --- execute_on_target ---
+# @desc_short  : Runs a command on any device given in the cmd naming scheme.
+# @usage       : execute_on_target <device> <cmd>
+# @parameter   : $1 | device | host_N, observer_N, ct_<id> or vm_<id>
+# @parameter   : $2 | cmd    | Command to execute
+# @notes       : Observers log in as fadmin — commands needing root need sudo.
+# ==============================================================================
+function execute_on_target {
+    local device="$1"
+    local cmd="$2"
+
+    # Route by name prefix — the same scheme collect_targets and 'files' use
+    case "$device" in
+        host_*|observer_*) execute_on_device    "$device"       "$cmd" ;;
+        ct_*)              execute_on_container "${device#ct_}" "$cmd" ;;
+        vm_*)              execute_on_vm        "${device#vm_}" "$cmd" ;;
+        *)
+            ERROR "Unknown device '${device}' — expected host_N, observer_N, ct_<id> or vm_<id>."
+            return 1
+            ;;
+    esac
 }
 
 # ==============================================================================
@@ -493,8 +685,8 @@ function observer_log_event {
 # @usage       : wake_target [@ref] <type> <device>
 # @parameter   : @ref    | nameref | optional: receives 1 when this call actually
 #                                    started the target, 0 when it was already up.
-#                                    Hosts only — the only type with a graceful
-#                                    power-down path (host-shutdown.sh).
+#                                    Hosts are probed by ping, containers/VMs by
+#                                    their pct/qm status on every reachable host.
 # @parameter   : $1 | type   | Device type: observer | host | container | vm
 # @parameter   : $2 | device | Device name or ID
 # ==============================================================================
@@ -523,12 +715,17 @@ function wake_target {
         *)         ERROR "Unknown device type: '${type}'"; return 1 ;;
     esac
 
-    # Probe before waking — obs-wake.sh reports success either way, so only a host
-    # that is unreachable right now is one this call actually powers on
+    # Probe before waking — obs-wake.sh reports success either way, so only a target
+    # that is down right now is one this call actually powers on
     if [[ -n "$ref_was_offline" && "$type" == "host" ]]; then
         local ip_target
         ip_target=$(get_device_ip "$device") || return 1
         ping -c 1 -W 2 "$ip_target" >/dev/null 2>&1 || printf -v "$ref_was_offline" '%s' "1"
+    fi
+
+    # Clients: running on no host at all means this call is the one starting it
+    if [[ -n "$ref_was_offline" && ( "$type" == "container" || "$type" == "vm" ) ]]; then
+        [[ -z "$(client_running_host "$type" "$device")" ]] && printf -v "$ref_was_offline" '%s' "1"
     fi
 
     # Resolve the primary observer — the single wake authority.
@@ -843,12 +1040,284 @@ function shutdown_woken_host {
 }
 
 # ==============================================================================
+# --- HA List Management ---
+# The ha_clients list lives on the observers under /opt/homelab/state/ha_clients
+# (source of truth — the HA watcher must stay decision-capable without NFS). The
+# active watcher mirrors it to ${PATH_SHARE_STATE}/ha_clients; LPEX reads
+# NFS-first and writes observers + share on changes. Used by 'setup ha'
+# (add/remove/move/edit), 'state ha' (display) and 'setup container --delete'
+# (silent removal on deletion, no marker — see _ha_remove_from_list).
+# Every explicit removal additionally leaves a permanent marker at
+# ${PATH_SHARE_STATE}/clients/<id>/ha_removed.json — see the Removal Markers
+# section below.
+# ==============================================================================
+FILE_REMOTE_HA_CLIENTS="/opt/homelab/state/ha_clients"      # ha_clients path on the observers (source of truth)
+PATH_REMOTE_CT_STATES="/opt/homelab/state/ct_states"        # per-CT watcher state files on the observers
+FILENAME_HA_REMOVED="ha_removed.json"                       # per-CT removal marker in state/clients/<id>/
+
+SSH_OPTS_HA=(-o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes)
+
+# --- _ha_read_list ---
+# @desc_short  : Reads the ha_clients boot order into an array — NFS-first, SSH fallback.
+# @usage       : _ha_read_list @return_var
+# @parameter   : $1 | @return_var | Name of the array variable to fill (one CT ID per element).
+# ==============================================================================
+function _ha_read_list {
+    local -n return_ha_read_list="${1#@}"
+    return_ha_read_list=()
+    local raw="" id ip user
+    local file_share_ha="${PATH_SHARE_STATE}/ha_clients"    # runtime-derived — see Script Internals note
+
+    # NFS-first: the share mirror avoids SSH in the common read path
+    if [[ -n "$PATH_SHARE_STATE" && -f "$file_share_ha" ]]; then
+        raw=$(<"$file_share_ha")
+    else
+        # Share unavailable — fall back to the primary observer via SSH
+        ip=$(get_device_ip "$OBSERVER_PRIMARY")         || return 1
+        user=$(get_device_ssh_user "$OBSERVER_PRIMARY") || return 1
+        raw=$(ssh "${SSH_OPTS_HA[@]}" "${user}@${ip}" "cat ${FILE_REMOTE_HA_CLIENTS}" 2>/dev/null) || {
+            ERROR "ha_clients not readable — share unmounted and ${OBSERVER_PRIMARY} unreachable."
+            return 1
+        }
+    fi
+
+    # Normalize each line: strip comments/whitespace, keep only non-empty IDs
+    while IFS= read -r id || [[ -n "$id" ]]; do
+        id="${id%%#*}"                      # strip optional '# comment' suffix
+        id="${id//[[:space:]]/}"            # trim all whitespace around the ID
+        [[ -n "$id" ]] && return_ha_read_list+=("$id")
+    done <<< "$raw"
+}
+
+# --- _ha_write_list ---
+# @desc_short  : Writes the boot order to both observers and the NFS share.
+# @desc_detailed: Primary observer is mandatory (the active watcher reads locally);
+#                 standby observer is best effort (may sleep — warn only); the share
+#                 copy is written directly so displays are consistent immediately
+#                 instead of waiting for the watcher's next sync cycle.
+# @usage       : _ha_write_list <list_content> <change_description>
+# @parameter   : $1 | list_content       | Full new list, newline separated CT IDs.
+# @parameter   : $2 | change_description | Short text for the observer event log.
+# ==============================================================================
+function _ha_write_list {
+    local list_content="$1"
+    local change_description="$2"
+    local observer ip user
+    local file_share_ha="${PATH_SHARE_STATE}/ha_clients"    # runtime-derived — see Script Internals note
+
+    for observer in "${OBSERVERS[@]}"; do
+        ip=$(get_device_ip "$observer")         || return 1
+        user=$(get_device_ssh_user "$observer") || return 1
+
+        # Atomic remote write: tmp file + mv prevents the watcher reading a partial list;
+        # ssh stderr suppressed — the WARN/ERROR below reports the failure cleanly
+        if printf '%s\n' "$list_content" | ssh "${SSH_OPTS_HA[@]}" "${user}@${ip}" \
+                "cat > ${FILE_REMOTE_HA_CLIENTS}.tmp && mv ${FILE_REMOTE_HA_CLIENTS}.tmp ${FILE_REMOTE_HA_CLIENTS}" 2>/dev/null; then
+            OK "ha_clients written → ${observer}"
+        else
+            # Only the primary is mandatory — its watcher acts on the list every 60s
+            if [[ "$observer" == "$OBSERVER_PRIMARY" ]]; then
+                ERROR "Write to ${observer} failed — aborting (primary is the source of truth)."
+                return 1
+            fi
+            WARN "Write to ${observer} failed (offline?) — sync it manually when it is back."
+        fi
+    done
+
+    # Direct share update for immediate display consistency (watcher would sync within 60s)
+    if [[ -n "$PATH_SHARE_STATE" ]] && share_mounted; then
+        printf '%s\n' "$list_content" > "$file_share_ha"
+    else
+        WARN "NFS share not mounted — share copy will be synced by the watcher."
+    fi
+
+    # Make the change visible in the observer's event history (fire-and-forget)
+    observer_log_event "LPEX: ha_clients updated (${change_description})" "OK"
+}
+
+# --- _ha_remove_from_list ---
+# @desc_short  : Rewrites the boot order without one CT and clears its watcher state.
+# @desc_detailed: Shared by 'setup ha --remove' (which additionally writes the
+#                 permanent ha_removed.json marker) and 'setup container --delete'
+#                 (which does not — the container itself is gone, a marker on a
+#                 client dir that is about to be deleted too would be pointless).
+# @usage       : _ha_remove_from_list <container_id> <change_description>
+# @parameter   : $1 | container_id       | CT ID (numeric).
+# @parameter   : $2 | change_description | Short text for the observer event log.
+# @exit_codes  : 0 | Removed.
+# @exit_codes  : 1 | Read/write failure — nothing changed.
+# @exit_codes  : 2 | CT was not HA-managed — not an error, caller decides how to report it.
+# ==============================================================================
+function _ha_remove_from_list {
+    local container_id="$1"
+    local change_description="$2"
+    local -a ha_list new_list=()
+    local found=0 id observer ip user
+
+    _ha_read_list @ha_list || return 1
+
+    # Rebuild the list without the target ID — order of the rest stays untouched
+    for id in "${ha_list[@]}"; do
+        if [[ "$id" == "$container_id" ]]; then
+            found=1
+        else
+            new_list+=("$id")
+        fi
+    done
+
+    (( found )) || return 2
+
+    _ha_write_list "$(printf '%s\n' "${new_list[@]}")" "$change_description" || return 1
+
+    # Clear the watcher's per-CT state file on both observers — best effort, a leftover
+    # file is harmless (the watcher only reads states for listed IDs)
+    for observer in "${OBSERVERS[@]}"; do
+        ip=$(get_device_ip "$observer")         || continue
+        user=$(get_device_ssh_user "$observer") || continue
+        ssh "${SSH_OPTS_HA[@]}" "${user}@${ip}" "rm -f ${PATH_REMOTE_CT_STATES}/${container_id}" 2>/dev/null
+    done
+}
+
+# --- _ha_set_maintenance ---
+# @desc_short  : Writes ha_override.json so HA pauses restarts for one container.
+# @desc_detailed: Shared by 'control container --maintenance' and 'setup container
+#                 --delete' (written before shutdown so the watcher cannot restart
+#                 the container mid-deletion — it reconciles every 60s).
+# @usage       : _ha_set_maintenance <container_id>
+# @parameter   : $1 | container_id | CT ID (numeric).
+# ==============================================================================
+function _ha_set_maintenance {
+    local container_id="$1"
+    local state_dir="${PATH_SHARE_STATE}/clients/${container_id}"
+
+    mkdir -p "$state_dir"                                                            # ensure state directory exists
+    echo '{"mode":"maintenance","set_by":"lpex"}' > "${state_dir}/ha_override.json"   # no expiry = permanent, until cleared
+}
+
+# --- _ha_clear_maintenance ---
+# @desc_short  : Removes the maintenance override, restoring normal HA behavior.
+# @usage       : _ha_clear_maintenance <container_id>
+# @parameter   : $1 | container_id | CT ID (numeric).
+# ==============================================================================
+function _ha_clear_maintenance {
+    local container_id="$1"
+
+    rm -f "${PATH_SHARE_STATE}/clients/${container_id}/ha_override.json"
+}
+
+# ==============================================================================
+# --- Removal Markers ---
+# A container that leaves the HA list would otherwise vanish without a trace —
+# it simply stops appearing in ha_clients. These helpers keep a permanent record
+# next to the container's status.json on the share, so the status views can flag
+# an unprotected container without parsing observer logs.
+# ==============================================================================
+
+# --- _ha_actor ---
+# @desc_short  : Prints who triggered the change, e.g. "florian@desktop".
+# @usage       : actor=$(_ha_actor)
+# ==============================================================================
+function _ha_actor {
+    local host_short="${HOSTNAME:-$(uname -n)}"     # bash sets HOSTNAME; uname covers non-bash shells
+
+    printf '%s@%s' "${USER:-unknown}" "${host_short%%.*}"
+}
+
+# --- _ha_mark_removed ---
+# @desc_short  : Writes the permanent "removed from HA" marker for one container.
+# @desc_detailed: Lives at ${PATH_SHARE_STATE}/clients/<id>/ha_removed.json and
+#                 stays until the container is added back (--add / --edit), which
+#                 deletes it. Share-only — the observers keep no per-client state.
+# @usage       : _ha_mark_removed <container_id> <boot_position> [reason]
+# @parameter   : $1 | container_id  | CT ID (numeric).
+# @parameter   : $2 | boot_position | Boot position the CT held before removal (0 = unknown).
+# @parameter   : $3 | reason        | Optional free text shown in the HA views.
+# ==============================================================================
+function _ha_mark_removed {
+    local container_id="$1"
+    local boot_position="$2"
+    local reason="${3:-}"
+    local path_client="${PATH_SHARE_STATE}/clients/${container_id}"
+    local file_removed="${path_client}/${FILENAME_HA_REMOVED}"
+
+    # Golden rule: never touch a share path while the share is down
+    if [[ -z "$PATH_SHARE_STATE" ]] || ! share_mounted; then
+        WARN "NFS share not mounted — removal of CT ${container_id} not recorded."
+        return 1
+    fi
+
+    # A container that never reported a status has no client dir yet
+    mkdir -p "$path_client" 2>/dev/null || { WARN "Cannot create ${path_client} — removal not recorded."; return 1; }
+
+    # jq builds the JSON so a reason with quotes or newlines cannot break the file
+    jq -n \
+        --argjson removed_unix  "$(date +%s)" \
+        --arg     removed_iso   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        --arg     actor         "$(_ha_actor)" \
+        --arg     reason        "$reason" \
+        --argjson last_boot_pos "$boot_position" \
+        '{removed_unix: $removed_unix, removed_iso: $removed_iso, actor: $actor, reason: $reason, last_boot_pos: $last_boot_pos}' \
+        > "${file_removed}.tmp" 2>/dev/null || { WARN "Cannot write ${file_removed} — removal not recorded."; return 1; }
+
+    # Atomic swap — a status run must never read a half-written marker
+    mv "${file_removed}.tmp" "$file_removed"
+}
+
+# --- _ha_clear_removed ---
+# @desc_short  : Deletes the removal marker of a container that is back in HA.
+# @usage       : _ha_clear_removed <container_id>
+# @parameter   : $1 | container_id | CT ID (numeric).
+# ==============================================================================
+function _ha_clear_removed {
+    local container_id="$1"
+    local file_removed="${PATH_SHARE_STATE}/clients/${container_id}/${FILENAME_HA_REMOVED}"
+
+    # Silent skip when the share is down — nothing to clean up that we could reach
+    [[ -n "$PATH_SHARE_STATE" ]] && share_mounted || return 0
+
+    # Absent marker is the normal case for a CT that was never removed — -f stays quiet
+    rm -f "$file_removed"
+}
+
+# --- _ha_read_removed ---
+# @desc_short  : Collects all removal markers as "<id>|<iso>|<actor>|<reason>" lines.
+# @usage       : _ha_read_removed @return_var
+# @parameter   : $1 | @return_var | Name of the array variable to fill.
+# ==============================================================================
+function _ha_read_removed {
+    local -n return_ha_read_removed="${1#@}"
+    return_ha_read_removed=()
+    local file_removed container_id fields
+
+    # Silent skip when the share is down — the caller treats this as "none known"
+    [[ -n "$PATH_SHARE_STATE" ]] && share_mounted || return 0
+
+    # Glob over all client dirs — only those with a marker are unprotected on purpose
+    for file_removed in "${PATH_SHARE_STATE}"/clients/*/"${FILENAME_HA_REMOVED}"; do
+        # An unmatched glob stays literal — skip it instead of parsing the pattern
+        [[ -f "$file_removed" ]] || continue
+
+        # The client dir is named after the CT ID — no field in the file carries it
+        container_id=$(basename "$(dirname "$file_removed")")
+
+        # Skip a marker that is not valid JSON rather than emitting a broken row
+        fields=$(jq -r '[.removed_iso, .actor, .reason] | join("|")' "$file_removed" 2>/dev/null) || continue
+
+        return_ha_read_removed+=("${container_id}|${fields}")
+    done
+}
+
+# ==============================================================================
 # --- Export block ---
 # argument_completions.sh runs --option-cmd via `bash -c`, which spawns a new process.
 # Bash functions and arrays are NOT inherited — only exported scalars and functions survive.
 # This block runs once on source and makes all device-list helpers subshell-safe.
 # ==============================================================================
-export -f get_hosts get_observers get_nodes get_containers get_vms get_all_devices get_ha_clients share_mounted _fetch_list_dir
-for _v in $(compgen -v | grep -E '^(IP_|MAC_|DEVICENAME_|OBSERVER_|MOUNT_|FILE_CONTAINER_|FILE_VM_|PATH_SHARE_)'); do
+export -f get_hosts get_observers get_nodes get_containers get_vms get_ha_clients share_mounted _fetch_list_dir
+export -f get_cmd_devices get_cmd_aliases get_cmd_alias_devices
+export FILE_CMDS_DB TABLE_CMDS
+# PORT_/TIMEOUT_/THRESHOLD_ cover share_reachable's config (homelab_functions.sh) — extend
+# this list whenever a new --option-cmd needs another config.conf variable in its subshell.
+for _v in $(compgen -v | grep -E '^(IP_|MAC_|DEVICENAME_|OBSERVER_|MOUNT_|FILE_CONTAINER_|FILE_VM_|PATH_SHARE_|PORT_|TIMEOUT_|THRESHOLD_)'); do
     export "$_v"
 done; unset _v

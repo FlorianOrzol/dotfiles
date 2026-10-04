@@ -1,0 +1,7 @@
+Container lifecycle changes: delete (create is planned, not built yet)
+--delete stops a running container (confirmed, HA paused first so the watcher
+does not race the confirmation), destroys it with 'pct destroy --purge
+--destroy-unreferenced-disks' after a second confirmation (type the ID), then
+removes it from the HA boot order, the NFS share state and the local mirror.
+Backup archives, bind-mounted data and the standby host's ZFS copy are never
+touched automatically.

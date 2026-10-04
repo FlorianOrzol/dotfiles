@@ -5,16 +5,23 @@
 # ==============================================================================
 
 # --- function arguments ---
-# @desc_short  : Registers CLI arguments for executing a saved command alias.
-# @usage       : lpex homelab cmd alias <alias> [--device <device>]
+# @desc_short  : Registers CLI arguments for running a saved shortcut.
+# @usage       : lpex homelab cmd alias <alias> [--device <device...>]
 #
-# @options     : <alias>    | Alias name to execute (required, positional)
-#                --device   | Target device override (optional, defaults to stored device(s))
+# @options     : <alias>    | Saved shortcut (positional, fzf)
+#                --device   | Limit the run to some of its devices (default: all of them)
 # ==============================================================================
 function arguments {
-    arg_direct @alias  --description "Alias to execute" --fzf \
-                           --option-cmd "get_cmd_aliases"
-    arg_value  @device --description "Target device" --fzf \
-                           --depends-on "ARG_ALIAS" \
-                           --option-cmd "get_cmd_current_devices"
+    local alias_selected
+
+    arg_direct @alias --description "Saved shortcut" --fzf --option-cmd "get_cmd_aliases"
+
+    # ARG_ALIAS is not set during completion — the typed alias is the first token then
+    alias_selected="${ARG_ALIAS:-${ARGS_ENTERED[0]}}"
+
+    # Offer only the devices stored for this alias; the value is baked into the
+    # command string because --option-cmd runs in a subshell without ARG_*
+    # No --depends-on "ARG_ALIAS": the alias is positional, '--alias' is never typed
+    arg_value @device --description "Run only on these device(s)" --multi \
+        --option-cmd "get_cmd_alias_devices $(printf '%q' "$alias_selected")"
 }

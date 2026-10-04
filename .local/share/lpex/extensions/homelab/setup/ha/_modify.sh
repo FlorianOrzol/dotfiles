@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : _modify.sh
-# @desc_short       : Modify actions (add/remove/move/edit) for the 'ha' submodule.
-#                     Sourced by ha/main.sh.
+# @desc_short       : Add/remove/move/edit actions for the 'setup ha' submodule.
+#                     Sourced by setup/ha/main.sh.
 # ==============================================================================
 
 # --- action_add ---
@@ -38,6 +38,9 @@ function action_add {
 # @desc_short  : Removes a container from the HA list and clears its watcher state.
 # @desc_detailed: Also writes a permanent ha_removed.json marker on the share so the
 #                 container stays visible as unprotected in every status view.
+#                 The list-rewrite and ct_states cleanup live in extension_global.sh
+#                 (_ha_remove_from_list) — 'setup container --delete' shares that part
+#                 but skips the marker, since the container itself is gone too.
 # @usage       : action_remove <container_id> [reason]
 # @parameter   : $1 | container_id | CT ID (numeric).
 # @parameter   : $2 | reason       | Optional free text recorded with the removal.
@@ -45,36 +48,25 @@ function action_add {
 function action_remove {
     local container_id="$1"
     local reason="${2:-}"
-    local -a ha_list new_list=()
-    local found=0 boot_position=0 position=1 id observer ip user
+    local -a ha_list
+    local boot_position=0 position=1 id
 
+    # Read the list once more, only to remember the boot position for the marker
     _ha_read_list @ha_list || return 1
-
-    # Rebuild the list without the target ID — order of the rest stays untouched
     for id in "${ha_list[@]}"; do
-        if [[ "$id" == "$container_id" ]]; then
-            found=1
-            boot_position=$position     # remembered for the marker: where it used to boot
-        else
-            new_list+=("$id")
-        fi
+        [[ "$id" == "$container_id" ]] && boot_position=$position
         (( position++ ))
     done
 
-    (( found )) || { WARN "CT ${container_id} is not HA-managed — nothing to remove."; return 0; }
-
-    _ha_write_list "$(printf '%s\n' "${new_list[@]}")" "CT ${container_id} removed by $(_ha_actor)${reason:+ — ${reason}}" || return 1
+    _ha_remove_from_list "$container_id" "CT ${container_id} removed by $(_ha_actor)${reason:+ — ${reason}}"
+    case $? in
+        0) ;;
+        2) WARN "CT ${container_id} is not HA-managed — nothing to remove."; return 0 ;;
+        *) return 1 ;;
+    esac
 
     # Permanent record on the share — the status views read this, not the logs
     _ha_mark_removed "$container_id" "$boot_position" "$reason"
-
-    # Clear the watcher's per-CT state file on both observers — best effort, a leftover
-    # file is harmless (the watcher only reads states for listed IDs)
-    for observer in "${OBSERVERS[@]}"; do
-        ip=$(get_device_ip "$observer")         || continue
-        user=$(get_device_ssh_user "$observer") || continue
-        ssh "${SSH_OPTS_HA[@]}" "${user}@${ip}" "rm -f ${PATH_REMOTE_CT_STATES}/${container_id}" 2>/dev/null
-    done
 
     OK "CT ${container_id} removed from HA."
     INFO "A running container keeps running — HA just no longer restarts it."

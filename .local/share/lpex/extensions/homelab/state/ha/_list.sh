@@ -2,7 +2,7 @@
 # ==============================================================================
 # @meta_name        : _list.sh
 # @desc_short       : Boot order display for the 'ha' submodule.
-#                     Sourced by ha/main.sh.
+#                     Sourced by state/ha/main.sh.
 # ==============================================================================
 
 # --- action_list ---
@@ -18,7 +18,7 @@ function action_list {
 
     # Empty list is a valid state — nothing is HA-managed yet
     if (( ${#ha_list[@]} == 0 )); then
-        WARN "No HA clients configured — add one with: lpex homelab ha --add <id>"
+        WARN "No HA clients configured — add one with: lpex homelab setup ha --add <id>"
         return 0
     fi
 

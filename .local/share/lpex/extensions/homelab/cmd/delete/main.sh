@@ -1,48 +1,30 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : main.sh
-# @desc_short       : Deletes a saved command entry from the commands database.
+# @desc_short       : Deletes a saved shortcut after confirmation.
 # ==============================================================================
-
-# ==============================================================================
-# --- Script Internals ---
-# ==============================================================================
-DB_FILE="cmds.db"       # database file, resolved relative to PATH_EXTENSION_DATA
-DB_TABLE="commands"     # table name for stored commands
 
 # ==============================================================================
 # --- extension_start ---
+# @desc_short  : Shows the shortcut, asks, deletes it.
 # ==============================================================================
 function extension_start {
-    # Validate required arguments
-    [[ -z "$ARG_ALIAS" ]]  && { ERROR "No alias specified.";  return 1; }
-    [[ -z "$ARG_DEVICE" ]] && { ERROR "No device specified."; return 1; }
-
-    action_delete
-}
-
-# ==============================================================================
-# --- action_delete ---
-# @desc_short  : Deletes the entry matching alias + device; warns if not found.
-# @usage       : action_delete
-# ==============================================================================
-function action_delete {
-    local alias="$ARG_ALIAS"
-    local device="$ARG_DEVICE"
-
-    # Check if entry exists before attempting delete
-    local existing
-    lx db --file "$DB_FILE" --table "$DB_TABLE" --select @existing \
-        --cols "id" --where "alias='${alias}' AND device='${device}'" --limit 1
-
-    # Abort if no matching entry found
-    if [[ -z "$existing" ]]; then
-        WARN "No entry found for alias '${alias}' on device '${device}'."
+    # Alias is required — fzf already offered the list
+    if [[ -z "$ARG_ALIAS" ]]; then
+        ERROR "No alias specified."
         return 1
     fi
 
-    lx db --file "$DB_FILE" --table "$DB_TABLE" --delete \
-        --where "alias='${alias}' AND device='${device}'"
+    # Loads CMD_ID, CMD_CMD, CMD_DEVICES, CMD_DESCRIPTION
+    cmd_read_alias "$ARG_ALIAS" || return 1
 
-    OK "Deleted '${alias}' for '${device}'."
+    INFO "${ARG_ALIAS} (${CMD_DEVICES}): ${CMD_CMD}"
+
+    # Default No — a deleted shortcut is gone, there is no undo
+    question "Delete '${ARG_ALIAS}'?" --default-no || return 1
+
+    # Delete by id — the alias was resolved above
+    lx db --file "$FILE_CMDS_DB" --table "$TABLE_CMDS" --delete --where "id=${CMD_ID}"
+
+    OK "Deleted '${ARG_ALIAS}'."
 }
