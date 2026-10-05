@@ -8,7 +8,9 @@
 # TODO: Hauptprogramm get-arguments globals und configs laden
 function extension_start() {
 
-	echo "Starting Vaultwarden Extension..."
+	# Status on stderr — stdout carries only rbw's output, so $(key get …) stays usable;
+	# --quiet drops it completely
+	(( ARG_QUIET )) || echo "Starting Vaultwarden Extension..." >&2
     # Check for initialization request
 	(( ARG_INIT )) && _do_init && return 0
 

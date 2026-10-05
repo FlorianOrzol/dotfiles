@@ -28,6 +28,7 @@
 # @notes            :   <area>/<repo>.remotes     remote URLs, first = fetch, all = push (registry)
 # @notes            :   <area>/<repo>.tracked     tracked roots relative to $HOME
 # @notes            :   <area>/<repo>.excluded    paths inside tracked roots kept out
+# @notes            :   <area>/<repo>.conf        optional: WORKTREE=<relpath> (project repo), BRANCH=<name>
 # @notes            :   system.list + system/     root-owned files for 'private apply'
 # ==============================================================================
 
@@ -127,6 +128,9 @@ function mgit_action_list {
         fi
         output --subsection "${repo}  (${state_local})"
 
+        # Branch and work tree — project repositories live outside $HOME's root
+        printf '%b\n' "  ${FONT_GRAY}branch${FONT_RESET} $(_mgit_branch "$area" "$repo")  ${FONT_GRAY}worktree${FONT_RESET} $(_mgit_worktree "$area" "$repo" | sed "s|^${HOME}|~|")"
+
         # Remotes: the first one is the fetch source
         while IFS= read -r url_remote; do
             [[ -n "$url_remote" ]] && printf '%b\n' "  ${FONT_GRAY}remote${FONT_RESET} ${url_remote}"
@@ -180,6 +184,9 @@ function mgit_action_status {
         # Changes of already tracked files
         _mgit_git "$area" "$repo" status --short
 
+        # Project repositories show untracked files in 'status' already
+        _mgit_is_project "$area" "$repo" && continue
+
         # New files below the tracked roots — everything is ignored by '*', so they show up as ignored
         _mgit_pathspecs @pathspecs "$area" "$repo"
         files_new=()
@@ -213,6 +220,7 @@ function mgit_action_add {
 
     # 1. --- Validation ---------------
     _mgit_require_local "$area" "$repo" || return 1
+    _mgit_require_home "$area" "$repo" add || return 1
 
     # A path is required — fzf cannot offer one
     if [[ -z "$path_input" ]]; then
@@ -250,7 +258,7 @@ function mgit_action_add {
 
     # Public content gets the secret and size checks
     if [[ "$area" == "public" ]]; then
-        _mgit_check_public interactive "${files[@]}" || return 1
+        _mgit_check_public interactive "$HOME" "${files[@]}" || return 1
     fi
 
     output --section "Add to ${area^^} repository '${repo}'"
@@ -313,6 +321,7 @@ function mgit_action_rm {
     local is_inside_root=0
 
     _mgit_require_local "$area" "$repo" || return 1
+    _mgit_require_home "$area" "$repo" rm || return 1
 
     # A path is required
     if [[ -z "$path_input" ]]; then
@@ -407,7 +416,7 @@ function mgit_action_push {
             # Public: secret and size checks over everything that changed
             if [[ "$area" == "public" ]] && (( ${#files_changed[@]} )); then
                 # Checks failed or were declined — leave the index for the next attempt
-                if ! _mgit_check_public interactive "${files_changed[@]}"; then
+                if ! _mgit_check_public interactive "$(_mgit_worktree "$area" "$repo")" "${files_changed[@]}"; then
                     ERROR "Nothing committed in ${area}/${repo}."
                     (( count_failed++ ))
                     continue
@@ -442,7 +451,7 @@ function mgit_action_push {
         fi
 
         # Push to every push URL of origin
-        if _mgit_git "$area" "$repo" push -q -u origin "$area"; then
+        if _mgit_git "$area" "$repo" push -q -u origin "$(_mgit_branch "$area" "$repo")"; then
             OK "${area}/${repo} pushed."
         else
             ERROR "Push of ${area}/${repo} failed. Remote ahead? Run: lpex mgit ${area} pull ${repo}"
@@ -481,7 +490,7 @@ function mgit_action_pull {
         fi
 
         # Rebase local commits on top, stash uncommitted edits meanwhile
-        if _mgit_git "$area" "$repo" pull -q --rebase --autostash origin "$area"; then
+        if _mgit_git "$area" "$repo" pull -q --rebase --autostash origin "$(_mgit_branch "$area" "$repo")"; then
             OK "${area}/${repo} is up to date."
         else
             ERROR "Pull of ${area}/${repo} failed. Resolve with: lpex mgit ${area} git ${repo} status"
@@ -495,17 +504,20 @@ function mgit_action_pull {
 
 # --- mgit_action_create ---
 # @desc_short       : Creates a repository on the area's servers and locally.
-# @usage            : mgit_action_create <area> <repo> [local_only]
+# @usage            : mgit_action_create <area> <repo> [local_only] [path]
 # @parameter        : $1 | area       | public | private
 # @parameter        : $2 | repo       | Name of the new repository
 # @parameter        : $3 | local_only | 1 = skip the server API (repository exists already)
+# @parameter        : $4 | path       | Project folder — without it a home repository is created
 # ================================================================================
 function mgit_action_create {
     local area="$1"
     local repo="$2"
     local local_only="${3:-0}"
+    local path_input="${4:-}"
     local servers=()
     local urls=()
+    local relpath_worktree=""
     local server
 
     # 1. --- Validation ---------------
@@ -514,26 +526,14 @@ function mgit_action_create {
         lx input @repo --prompt "Name of the new ${area} repository" || return 1
     fi
 
-    # Names end up in URLs and file names — keep them simple
-    if [[ ! "$repo" =~ ^[A-Za-z0-9._-]+$ ]]; then
-        ERROR "Invalid repository name '${repo}' — allowed: letters, digits, '.', '_', '-'."
-        return 1
-    fi
+    _mgit_validate_new "$area" "$repo" || return 1
 
-    # Refuse duplicates within the area
-    if [[ -f "$(_mgit_file_list "$area" "$repo" remotes)" ]]; then
-        ERROR "Repository ${area}/${repo} already exists."
-        return 1
-    fi
+    # Project folder relative to $HOME; '~' itself means home repository
+    _mgit_worktree_input @relpath_worktree "$path_input" || return 1
 
     # The area needs at least one configured server
     _mgit_area_servers @servers "$area" || return 1
-
-    # Build the SSH URL of every server
-    for server in "${servers[@]}"; do
-        # shellcheck disable=SC2059  # the template is the format string by design
-        urls+=("$(printf "$(_mgit_server_var "$server" URL_SSH)" "$repo")")
-    done
+    _mgit_server_urls @urls "$repo" "${servers[@]}"
 
     # 2. --- Confirmation ---------------
     output --section "Create ${area^^} repository '${repo}'"
@@ -553,11 +553,7 @@ function mgit_action_create {
     fi
 
     # 4. --- Local repository ---------------
-    mkdir -p "${PATH_MGIT_DATA}/${area}"
-    # Registry entry: one URL per line, the first one is the fetch source
-    printf '%s\n' "${urls[@]}" > "$(_mgit_file_list "$area" "$repo" remotes)"
-    # Empty root list — filled by 'add'
-    : > "$(_mgit_file_list "$area" "$repo" tracked)"
+    _mgit_register "$area" "$repo" "$relpath_worktree" "" "${urls[@]}"
 
     _mgit_init_local "$area" "$repo" || return 1
 
@@ -568,7 +564,7 @@ function mgit_action_create {
     fi
 
     # Upload the branch to every push URL
-    if ! _mgit_git "$area" "$repo" push -q -u origin "$area"; then
+    if ! _mgit_git "$area" "$repo" push -q -u origin "$(_mgit_branch "$area" "$repo")"; then
         ERROR "Initial push failed — check SSH access to the servers."
         return 1
     fi
@@ -581,6 +577,164 @@ function mgit_action_create {
     fi
 
     OK "${area}/${repo} created. Add content with: lpex mgit ${area} add ${repo} <path>"
+}
+
+# --- mgit_action_import ---
+# @desc_short       : Takes over a repository that exists on the server, with its history.
+# @usage            : mgit_action_import <area> <repo> [path] [branch]
+# @parameter        : $1 | area   | public | private
+# @parameter        : $2 | repo   | Name of the repository on the servers
+# @parameter        : $3 | path   | Project folder — without it a home repository (paths relative to $HOME)
+# @parameter        : $4 | branch | Branch to use (default: the server's default branch)
+# @notes            : The first server must have the repository. Further servers of the
+# @notes            : area get it created if missing and receive the history (mirror).
+# ================================================================================
+function mgit_action_import {
+    local area="$1"
+    local repo="$2"
+    local path_input="${3:-}"
+    local branch="${4:-}"
+    local servers=()
+    local urls=()
+    local relpath_worktree=""
+    local server
+
+    # 1. --- Validation ---------------
+    _mgit_validate_new "$area" "$repo" || return 1
+    _mgit_area_servers @servers "$area" || return 1
+    _mgit_server_urls @urls "$repo" "${servers[@]}"
+
+    # Project folder relative to $HOME; '~' itself means home repository
+    _mgit_worktree_input @relpath_worktree "$path_input" || return 1
+
+    # Default branch of the source, read over SSH — needs no API token
+    if [[ -z "$branch" ]]; then
+        branch="$("$CMD_GIT" ls-remote --symref "${urls[0]}" HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\(.*\)\tHEAD$|\1|p')"
+    fi
+    # Nothing came back: unreachable, missing or empty repository
+    if [[ -z "$branch" ]]; then
+        ERROR "${urls[0]} is not reachable or has no branch — does the repository exist?"
+        return 1
+    fi
+
+    # 2. --- Confirmation ---------------
+    output --section "Import ${area^^} repository '${repo}'"
+    printf '  %s\n' "${urls[@]}"
+    output --info "Branch: ${branch}"
+    # Home repositories check out right into $HOME — say so explicitly
+    if [[ -n "$relpath_worktree" ]]; then
+        output --info "Project folder: ~/${relpath_worktree}"
+    else
+        output --warn "Home repository: its files are checked out relative to \$HOME."
+    fi
+    if ! question "Import ${area}/${repo}?"; then
+        output --info "Aborted."
+        return 0
+    fi
+
+    # 3. --- Mirrors ---------------
+    # Every server after the first gets the repository if it does not exist yet
+    for server in "${servers[@]:1}"; do
+        _mgit_server_create "$area" "$server" "$repo" || return 1
+    done
+
+    # 4. --- Local repository ---------------
+    _mgit_register "$area" "$repo" "$relpath_worktree" "$branch" "${urls[@]}"
+    # Differing local files are only overwritten after a question
+    _mgit_clone "$area" "$repo" || return 1
+
+    # Mirrors start empty — hand them the full history once
+    if (( ${#servers[@]} > 1 )); then
+        _mgit_git "$area" "$repo" push -q origin "$branch" || WARN "Mirror push failed — retry with: lpex mgit ${area} push ${repo}"
+    fi
+
+    # Home repositories need their roots, or push only sees already tracked files
+    if [[ -z "$relpath_worktree" ]]; then
+        INFO "Register the tracked roots so push finds new files: lpex mgit ${area} add ${repo} <path>"
+    fi
+}
+
+# --- mgit_action_delete ---
+# @desc_short       : Deletes a repository on its servers and locally.
+# @usage            : mgit_action_delete <area> <repo> [local_only]
+# @parameter        : $1 | area       | public | private
+# @parameter        : $2 | repo       | Repository to delete
+# @parameter        : $3 | local_only | 1 = keep it on the servers, only forget it on this machine
+# @notes            : Files in $HOME are never touched. The servers come from the
+# @notes            : repository's .remotes — only configured servers can be reached
+# @notes            : by API; unknown remotes are reported and left alone.
+# ================================================================================
+function mgit_action_delete {
+    local area="$1"
+    local repo="$2"
+    local local_only="${3:-0}"
+    local servers=()
+    local servers_delete=()
+    local urls_remote=()
+    local name_confirm=""
+    local server url_server url_remote is_known
+
+    # 1. --- Validation ---------------
+    _mgit_require_registered "$area" "$repo" || return 1
+
+    mapfile -t urls_remote < <(_mgit_read_list "$area" "$repo" remotes)
+
+    # Match every remote URL to a configured server of the area
+    if (( ! local_only )); then
+        _mgit_area_servers @servers "$area" || return 1
+        for url_remote in "${urls_remote[@]}"; do
+            is_known=0
+            for server in "${servers[@]}"; do
+                # shellcheck disable=SC2059  # the template is the format string by design
+                url_server="$(printf "$(_mgit_server_var "$server" URL_SSH)" "$repo")"
+                # Same URL: this server hosts the repository
+                if [[ "$url_server" == "$url_remote" ]]; then
+                    servers_delete+=("$server")
+                    is_known=1
+                fi
+            done
+            # A remote outside the config cannot be deleted by API
+            (( is_known )) || WARN "No configured server for ${url_remote} — delete it there by hand."
+        done
+    fi
+
+    # 2. --- Confirmation ---------------
+    output --section "Delete ${area^^} repository '${repo}'"
+    # Show exactly what is going to disappear
+    if (( ${#servers_delete[@]} )); then
+        output --warn "On the servers (with its whole history): ${servers_delete[*]}"
+    else
+        output --info "The servers keep the repository."
+    fi
+    output --warn "On this machine: git dir and registry entry (.remotes, .tracked, .excluded)"
+    output --info "Files in $(_mgit_worktree "$area" "$repo" | sed "s|^${HOME}|~|") stay untouched."
+
+    # Public repositories may have users beyond this machine
+    if [[ "$area" == "public" ]] && (( ${#servers_delete[@]} )); then
+        WARN "This is a PUBLIC repository — clones and links of other people break."
+    fi
+
+    # Typing the name prevents deleting the wrong repository by a slip
+    lx input @name_confirm --prompt "Type '${repo}' to confirm" || return 1
+    if [[ "$name_confirm" != "$repo" ]]; then
+        output --info "Name did not match — nothing deleted."
+        return 0
+    fi
+
+    # 3. --- Servers ---------------
+    # Stop on the first failure — the local entry stays, so the call can be repeated
+    for server in "${servers_delete[@]}"; do
+        _mgit_server_delete "$server" "$repo" || return 1
+    done
+
+    # 4. --- Local ---------------
+    rm -rf -- "$(_mgit_path_gitdir "$area" "$repo")"
+    rm -f -- "$(_mgit_file_list "$area" "$repo" remotes)" \
+        "$(_mgit_file_list "$area" "$repo" tracked)" \
+        "$(_mgit_file_list "$area" "$repo" excluded)" \
+        "$(_mgit_file_list "$area" "$repo" conf)"
+
+    OK "${area}/${repo} deleted."
 }
 
 # --- mgit_action_git ---
@@ -599,8 +753,8 @@ function mgit_action_git {
 
     _mgit_require_local "$area" "$repo" || return 1
 
-    # Hand everything to git with the repository's git dir and $HOME as work tree
-    "$CMD_GIT" --git-dir="$(_mgit_path_gitdir "$area" "$repo")" --work-tree="$HOME" "$@"
+    # Hand everything to git with the repository's git dir and work tree
+    "$CMD_GIT" --git-dir="$(_mgit_path_gitdir "$area" "$repo")" --work-tree="$(_mgit_worktree "$area" "$repo")" "$@"
 }
 
 # --- mgit_action_check ---
@@ -634,7 +788,7 @@ function mgit_action_check {
     fi
 
     # Secret checks — soft findings block too, there is nobody to ask
-    _mgit_check_public hook "${files_changed[@]}"
+    _mgit_check_public hook "$(_mgit_worktree "$area" "$repo")" "${files_changed[@]}"
 }
 
 # --- mgit_action_apply ---
@@ -766,7 +920,58 @@ function _mgit_git {
     local area="$1"
     local repo="$2"
     shift 2
-    "$CMD_GIT" -C "$HOME" --git-dir="$(_mgit_path_gitdir "$area" "$repo")" --work-tree="$HOME" "$@"
+    local path_worktree
+    path_worktree="$(_mgit_worktree "$area" "$repo")"
+    "$CMD_GIT" -C "$path_worktree" --git-dir="$(_mgit_path_gitdir "$area" "$repo")" --work-tree="$path_worktree" "$@"
+}
+
+# --- _mgit_repo_setting ---
+# @desc_short       : Prints a per-repository setting from <repo>.conf (WORKTREE | BRANCH).
+# @usage            : _mgit_repo_setting <area> <repo> <key>
+# @notes            : Missing file or key prints nothing — the caller applies the default.
+# ================================================================================
+function _mgit_repo_setting {
+    local area="$1"
+    local repo="$2"
+    local key="$3"
+    local file_conf
+    file_conf="$(_mgit_file_list "$area" "$repo" conf)"
+    # Plain KEY=value lines; never sourced, so the file cannot run code
+    [[ -f "$file_conf" ]] && sed -n "s/^${key}=//p" "$file_conf" | head -n1
+    return 0
+}
+
+# --- _mgit_worktree ---
+# @desc_short       : Prints the absolute work tree: $HOME, or the project folder.
+# @usage            : _mgit_worktree <area> <repo>
+# ================================================================================
+function _mgit_worktree {
+    local relpath_worktree
+    relpath_worktree="$(_mgit_repo_setting "$1" "$2" WORKTREE)"
+    # No WORKTREE: a home repository
+    if [[ -n "$relpath_worktree" ]]; then
+        echo "${HOME}/${relpath_worktree}"
+    else
+        echo "$HOME"
+    fi
+}
+
+# --- _mgit_branch ---
+# @desc_short       : Prints the branch of a repository (default: the area name).
+# @usage            : _mgit_branch <area> <repo>
+# ================================================================================
+function _mgit_branch {
+    local branch
+    branch="$(_mgit_repo_setting "$1" "$2" BRANCH)"
+    echo "${branch:-$1}"
+}
+
+# --- _mgit_is_project ---
+# @desc_short       : Succeeds for project repositories (own work tree instead of $HOME).
+# @usage            : _mgit_is_project <area> <repo>
+# ================================================================================
+function _mgit_is_project {
+    [[ -n "$(_mgit_repo_setting "$1" "$2" WORKTREE)" ]]
 }
 
 # --- _mgit_repos_of_area ---
@@ -808,6 +1013,68 @@ function _mgit_require_registered {
     fi
 }
 
+# --- _mgit_validate_new ---
+# @desc_short       : Fails unless the name is valid and not yet registered in the area.
+# @usage            : _mgit_validate_new <area> <repo>
+# ================================================================================
+function _mgit_validate_new {
+    local area="$1"
+    local repo="$2"
+
+    # Nothing given at all
+    if [[ -z "$repo" ]]; then
+        ERROR "No repository specified."
+        return 1
+    fi
+
+    # Names end up in URLs and file names — keep them simple
+    if [[ ! "$repo" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        ERROR "Invalid repository name '${repo}' — allowed: letters, digits, '.', '_', '-'."
+        # A path in the name slot: options were given before the name
+        [[ "$repo" == */* ]] && INFO "The repository name comes first: lpex mgit ${area} <action> <repo> [--path …]"
+        return 1
+    fi
+
+    # Convention: lower case with hyphens (GitHub ignores case, shells do not)
+    [[ "$repo" =~ [A-Z_] ]] && WARN "Convention is lower case with hyphens, e.g. '$(tr 'A-Z_' 'a-z-' <<< "$repo")'."
+
+    # Refuse duplicates within the area
+    if [[ -f "$(_mgit_file_list "$area" "$repo" remotes)" ]]; then
+        ERROR "Repository ${area}/${repo} already exists."
+        return 1
+    fi
+}
+
+# --- _mgit_register ---
+# @desc_short       : Writes the registry entry of a repository.
+# @usage            : _mgit_register <area> <repo> <relpath_worktree> <branch> <url…>
+# @parameter        : $3 | relpath_worktree | Project folder relative to $HOME, empty = home repository
+# @parameter        : $4 | branch           | Kept branch, empty = area name
+# ================================================================================
+function _mgit_register {
+    local area="$1"
+    local repo="$2"
+    local relpath_worktree="$3"
+    local branch="$4"
+    shift 4
+
+    mkdir -p "${PATH_MGIT_DATA}/${area}"
+    # One URL per line, the first one is the fetch source
+    printf '%s\n' "$@" > "$(_mgit_file_list "$area" "$repo" remotes)"
+
+    # Settings only where they differ from the defaults
+    {
+        [[ -n "$relpath_worktree" ]] && echo "WORKTREE=${relpath_worktree}"
+        [[ -n "$branch" && "$branch" != "$area" ]] && echo "BRANCH=${branch}"
+    } > "$(_mgit_file_list "$area" "$repo" conf)"
+    # No settings: no file
+    [[ -s "$(_mgit_file_list "$area" "$repo" conf)" ]] || rm -f "$(_mgit_file_list "$area" "$repo" conf)"
+
+    # Home repositories start with an empty root list — filled by 'add'
+    [[ -z "$relpath_worktree" ]] && : > "$(_mgit_file_list "$area" "$repo" tracked)"
+    return 0
+}
+
 # --- _mgit_require_local ---
 # @desc_short       : Fails with a message when a repository is not cloned on this machine.
 # @usage            : _mgit_require_local <area> <repo>
@@ -823,6 +1090,23 @@ function _mgit_require_local {
         ERROR "${area}/${repo} is not cloned on this machine — run: lpex mgit ${area} pull ${repo}"
         return 1
     fi
+}
+
+# --- _mgit_require_home ---
+# @desc_short       : Fails for project repositories — they track their whole folder.
+# @usage            : _mgit_require_home <area> <repo> <action>
+# ================================================================================
+function _mgit_require_home {
+    local area="$1"
+    local repo="$2"
+    local action="$3"
+
+    # Home repositories are the only ones with tracked roots
+    _mgit_is_project "$area" "$repo" || return 0
+
+    ERROR "'${action}' is for home repositories. ${area}/${repo} tracks its whole folder $(_mgit_worktree "$area" "$repo" | sed "s|^${HOME}|~|")."
+    INFO "Keep files out with a .gitignore there; everything else is picked up by: lpex mgit ${area} push ${repo}"
+    return 1
 }
 
 # --- _mgit_sync_state ---
@@ -865,6 +1149,23 @@ function _mgit_relpath {
         return 1
     fi
     return_mgit_relpath="${path_absolute#"$HOME"/}"
+}
+
+# --- _mgit_worktree_input ---
+# @desc_short       : Converts a --path value into the stored WORKTREE (relative to $HOME).
+# @usage            : _mgit_worktree_input @return_var <path>
+# @notes            : Empty or $HOME itself → empty result = home repository.
+# ================================================================================
+function _mgit_worktree_input {
+    local -n return_mgit_worktree_input="${1#@}"
+    local path_input="$2"
+
+    return_mgit_worktree_input=""
+    # No path: home repository
+    [[ -z "$path_input" ]] && return 0
+    # '~', './' in $HOME or the full home path: also a home repository
+    [[ "$(realpath -s -m -- "$path_input")" == "$HOME" ]] && return 0
+    _mgit_relpath @return_mgit_worktree_input "$path_input"
 }
 
 # --- _mgit_collect_files ---
@@ -965,6 +1266,12 @@ function _mgit_stage_tracked {
     local pathspecs=()
     local relpaths_excluded=()
 
+    # Project repositories: the whole folder, filtered by its own .gitignore
+    if _mgit_is_project "$area" "$repo"; then
+        _mgit_git "$area" "$repo" add -A || { ERROR "git add -A failed in ${area}/${repo}."; return 1; }
+        return 0
+    fi
+
     # Modifications and deletions of files that are already tracked
     _mgit_git "$area" "$repo" add -u || { ERROR "git add -u failed in ${area}/${repo}."; return 1; }
 
@@ -995,20 +1302,31 @@ function _mgit_init_local {
     local urls_remote=()
     local url_remote
 
+    local path_worktree
+    local branch
     path_gitdir="$(_mgit_path_gitdir "$area" "$repo")"
+    path_worktree="$(_mgit_worktree "$area" "$repo")"
+    branch="$(_mgit_branch "$area" "$repo")"
 
-    # Bare layout: the directory itself is the git dir, nothing is placed in $HOME
+    # Project folders may not exist yet on a new machine
+    mkdir -p "$path_worktree"
+
+    # Bare layout: the directory itself is the git dir, nothing is placed in the work tree
     "$CMD_GIT" init -q --bare "$path_gitdir" || { ERROR "git init failed: ${path_gitdir}"; return 1; }
 
-    # Turn it into a regular repository with $HOME as work tree — plain 'git --git-dir=…' works then
+    # Turn it into a regular repository with its work tree — plain 'git --git-dir=…' works then
     _mgit_git "$area" "$repo" config core.bare false
-    _mgit_git "$area" "$repo" config core.worktree "$HOME"
-    # The branch carries the area name
-    _mgit_git "$area" "$repo" symbolic-ref HEAD "refs/heads/${area}"
-    # $HOME is full of untracked files — never list them
-    _mgit_git "$area" "$repo" config status.showUntrackedFiles no
-    # Ignore everything; content only enters via 'add -f' of tracked roots
-    printf '%s\n' "# Managed by lpex mgit — content is added explicitly with 'add -f'" "*" > "${path_gitdir}/info/exclude"
+    _mgit_git "$area" "$repo" config core.worktree "$path_worktree"
+    # Area name, or the branch kept from an imported repository
+    _mgit_git "$area" "$repo" symbolic-ref HEAD "refs/heads/${branch}"
+
+    # Home repositories only: $HOME is full of foreign files
+    if ! _mgit_is_project "$area" "$repo"; then
+        # Never list the untracked files of $HOME
+        _mgit_git "$area" "$repo" config status.showUntrackedFiles no
+        # Ignore everything; content only enters via 'add -f' of tracked roots
+        printf '%s\n' "# Managed by lpex mgit — content is added explicitly with 'add -f'" "*" > "${path_gitdir}/info/exclude"
+    fi
 
     # Remote: first URL fetches, every URL receives pushes
     mapfile -t urls_remote < <(grep -v '^[[:space:]]*$' "$(_mgit_file_list "$area" "$repo" remotes)")
@@ -1019,8 +1337,8 @@ function _mgit_init_local {
             _mgit_git "$area" "$repo" config --add remote.origin.pushurl "$url_remote"
         done
     fi
-    _mgit_git "$area" "$repo" config "branch.${area}.remote" origin
-    _mgit_git "$area" "$repo" config "branch.${area}.merge" "refs/heads/${area}"
+    _mgit_git "$area" "$repo" config "branch.${branch}.remote" origin
+    _mgit_git "$area" "$repo" config "branch.${branch}.merge" "refs/heads/${branch}"
 
     # Public repositories get the secret check as pre-commit hook
     if [[ "$area" == "public" ]]; then
@@ -1043,6 +1361,7 @@ function _mgit_clone {
     local files_missing=()
     local files_changed=()
     local relpath_file
+    local branch path_worktree
 
     _mgit_init_local "$area" "$repo" || return 1
 
@@ -1052,15 +1371,18 @@ function _mgit_clone {
         return 1
     fi
 
-    # Point the branch at the remote state — mixed reset fills the index, $HOME stays untouched
-    _mgit_git "$area" "$repo" reset -q "origin/${area}" || { ERROR "Branch '${area}' not found on origin."; return 1; }
+    branch="$(_mgit_branch "$area" "$repo")"
+    path_worktree="$(_mgit_worktree "$area" "$repo")"
+
+    # Point the branch at the remote state — mixed reset fills the index, the work tree stays untouched
+    _mgit_git "$area" "$repo" reset -q "origin/${branch}" || { ERROR "Branch '${branch}' not found on origin."; return 1; }
 
     # Every file where $HOME differs from the repository
     mapfile -d '' -t files_changed < <(_mgit_git "$area" "$repo" diff --name-only -z)
 
     # Split into files that are simply missing and files with other content
     for relpath_file in "${files_changed[@]}"; do
-        if [[ -e "${HOME}/${relpath_file}" || -L "${HOME}/${relpath_file}" ]]; then
+        if [[ -e "${path_worktree}/${relpath_file}" || -L "${path_worktree}/${relpath_file}" ]]; then
             files_differing+=("$relpath_file")
         else
             files_missing+=("$relpath_file")
@@ -1070,7 +1392,7 @@ function _mgit_clone {
     # Missing files are written without asking — nothing gets lost
     if (( ${#files_missing[@]} )); then
         _mgit_git "$area" "$repo" checkout -- "${files_missing[@]/#/:(literal)}"
-        output --info "${#files_missing[@]} file(s) written to \$HOME."
+        output --info "${#files_missing[@]} file(s) written to $(sed "s|^${HOME}|~|" <<< "$path_worktree")."
     fi
 
     # Differing files: the user decides
@@ -1155,7 +1477,7 @@ function _mgit_check_overlap {
     shift 2
     local -A files_foreign=()
     local hits=()
-    local area_other repo_other relpath_file
+    local area_other repo_other relpath_file path_worktree path_worktree_other
 
     # Index every file of every other cloned repository
     for area_other in "${MGIT_AREAS[@]}"; do
@@ -1163,15 +1485,17 @@ function _mgit_check_overlap {
             # Skip the repository itself and repositories missing on this machine
             [[ "$area_other" == "$area" && "$repo_other" == "$repo" ]] && continue
             [[ -d "$(_mgit_path_gitdir "$area_other" "$repo_other")" ]] || continue
+            path_worktree_other="$(_mgit_worktree "$area_other" "$repo_other")"
             while IFS= read -r -d '' relpath_file; do
-                files_foreign["$relpath_file"]="${area_other}/${repo_other}"
+                files_foreign["${path_worktree_other}/${relpath_file}"]="${area_other}/${repo_other}"
             done < <(_mgit_git "$area_other" "$repo_other" ls-files -z)
         done < <(mgit_repo_names "$area_other")
     done
 
+    path_worktree="$(_mgit_worktree "$area" "$repo")"
     # Collect every requested file that is taken already
     for relpath_file in "$@"; do
-        [[ -n "${files_foreign[$relpath_file]:-}" ]] && hits+=("${relpath_file}  → ${files_foreign[$relpath_file]}")
+        [[ -n "${files_foreign[${path_worktree}/${relpath_file}]:-}" ]] && hits+=("${relpath_file}  → ${files_foreign[${path_worktree}/${relpath_file}]}")
     done
 
     # No conflicts
@@ -1185,13 +1509,15 @@ function _mgit_check_overlap {
 
 # --- _mgit_check_public ---
 # @desc_short       : Checks files for forbidden paths, secrets, size and binary content.
-# @usage            : _mgit_check_public <interactive|hook> <relpath…>
-# @parameter        : $1 | mode | interactive = ask on soft findings, hook = block them
+# @usage            : _mgit_check_public <interactive|hook> <path_base> <relpath…>
+# @parameter        : $1 | mode      | interactive = ask on soft findings, hook = block them
+# @parameter        : $2 | path_base | Work tree the relative paths belong to
 # @notes            : Hard findings (deny paths, private keys, tokens) always block.
 # ================================================================================
 function _mgit_check_public {
     local mode="$1"
-    shift
+    local path_base="$2"
+    shift 2
     local hits_hard=()
     local hits_soft=()
     local hits_large=()
@@ -1213,7 +1539,7 @@ function _mgit_check_public {
             fi
         done
 
-        file_absolute="${HOME}/${relpath_file}"
+        file_absolute="${path_base}/${relpath_file}"
         # Links carry no content of their own; deleted files nothing to scan
         [[ -L "$file_absolute" || ! -f "$file_absolute" ]] && continue
 
@@ -1299,6 +1625,51 @@ function _mgit_area_servers {
     fi
 }
 
+# --- _mgit_server_urls ---
+# @desc_short       : Returns the SSH URL of a repository on each given server.
+# @usage            : _mgit_server_urls @return_var <repo> <server…>
+# ================================================================================
+function _mgit_server_urls {
+    local -n return_mgit_server_urls="${1#@}"
+    local repo="$2"
+    shift 2
+    local server
+
+    return_mgit_server_urls=()
+    # Fill the URL template of every server with the repository name
+    for server in "$@"; do
+        # shellcheck disable=SC2059  # the template is the format string by design
+        return_mgit_server_urls+=("$(printf "$(_mgit_server_var "$server" URL_SSH)" "$repo")")
+    done
+}
+
+# --- mgit_server_repo_names ---
+# @desc_short       : Completion for import: repositories on the area's servers not registered yet.
+# @usage            : mgit_server_repo_names <area>
+# @notes            : Exported for --option-cmd. Only GitHub lists public repositories without
+# @notes            : a token — other servers are skipped, completion must never ask for secrets.
+# ================================================================================
+function mgit_server_repo_names {
+    local area="$1"
+    local var_servers="SERVERS_${area^^}"
+    local server type_server owner name_repo
+
+    # The bash -c subshell of --option-cmd knows no config — load it here
+    source "${PATH_MGIT_DATA}/config.conf" 2>/dev/null || return 0
+
+    # Ask every token-free server for its repositories
+    for server in ${!var_servers}; do
+        type_server="$(_mgit_server_var "$server" TYPE)"
+        owner="$(_mgit_server_var "$server" OWNER)"
+        [[ "$type_server" == "github" ]] || continue
+        # Short timeout — completion must stay responsive offline
+        while IFS= read -r name_repo; do
+            # Registered repositories are no import candidates
+            [[ -f "${PATH_MGIT_DATA}/${area}/${name_repo}.remotes" ]] || echo "$name_repo"
+        done < <(/usr/bin/curl -s --max-time 3 "https://api.github.com/users/${owner}/repos?per_page=100" | /usr/bin/jq -r '.[].name' 2>/dev/null)
+    done
+}
+
 # --- _mgit_server_var ---
 # @desc_short       : Prints a setting of a server (SERVER_<KEY>_<NAME>).
 # @usage            : _mgit_server_var <server> <name>
@@ -1344,7 +1715,13 @@ function _mgit_server_token {
     if [[ -n "$cmd_token" ]]; then
         file_token="$(mktemp)"
         chmod 600 "$file_token"
-        bash -c "$cmd_token" > "$file_token" < /dev/null
+        # stderr is dropped: a token pasted here by mistake would otherwise be echoed by bash
+        if ! bash -c "$cmd_token" > "$file_token" 2>/dev/null < /dev/null; then
+            rm -f "$file_token"
+            ERROR "SERVER_${server^^}_TOKEN_CMD failed. It must be a command that prints the token,"
+            ERROR "e.g. rbw get '<vault entry>' --field <field> — never the token itself."
+            return 1
+        fi
         token_value="$(head -n1 "$file_token")"
         rm -f "$file_token"
     else
@@ -1354,6 +1731,8 @@ function _mgit_server_token {
     # An empty token would only produce a confusing 401
     if [[ -z "$token_value" ]]; then
         ERROR "No API token for ${server}."
+        # A working command without output: usually a missing vault field
+        [[ -n "$cmd_token" ]] && INFO "SERVER_${server^^}_TOKEN_CMD printed nothing — does the vault entry/field exist?"
         return 1
     fi
     MGIT_TOKENS["$server"]="$token_value"
@@ -1474,10 +1853,44 @@ function _mgit_server_set_default_branch {
     fi
 }
 
+# --- _mgit_server_delete ---
+# @desc_short       : Deletes a repository on one server.
+# @usage            : _mgit_server_delete <server> <repo>
+# @notes            : A repository that is already gone counts as success.
+# @notes            : GitHub tokens need 'Administration: Read and write' (fine-grained)
+# @notes            : or 'delete_repo' (classic).
+# ================================================================================
+function _mgit_server_delete {
+    local server="$1"
+    local repo="$2"
+    local type_server owner
+    local code="" body=""
+
+    type_server="$(_mgit_server_var "$server" TYPE)"
+    owner="$(_mgit_server_var "$server" OWNER)"
+
+    # GitLab addresses projects by URL-encoded path
+    case "$type_server" in
+        github|forgejo) _mgit_api @code @body "$server" DELETE "/repos/${owner}/${repo}" || return 1 ;;
+        gitlab)         _mgit_api @code @body "$server" DELETE "/projects/${owner}%2F${repo}" || return 1 ;;
+        *)              ERROR "Unknown server type '${type_server}' for ${server}."; return 1 ;;
+    esac
+
+    # 204/202 = deleted (GitLab deletes asynchronously); 404 = not there anymore
+    if [[ "$code" =~ ^(202|204)$ ]]; then
+        OK "Deleted on ${server}."
+    elif [[ "$code" == "404" ]]; then
+        output --info "Not found on ${server} — already deleted."
+    else
+        ERROR "Deleting on ${server} failed (HTTP ${code}): $(echo "$body" | "$CMD_JQ" -r '.message // .error // .' 2>/dev/null | head -c 300)"
+        return 1
+    fi
+}
+
 # ==============================================================================
 # --- Exports ---
 # --option-cmd runs in a bash -c subshell: only exported functions and
 # variables exist there.
 # ==============================================================================
-export -f mgit_repo_names
+export -f mgit_repo_names mgit_server_repo_names _mgit_server_var
 export PATH_MGIT_DATA

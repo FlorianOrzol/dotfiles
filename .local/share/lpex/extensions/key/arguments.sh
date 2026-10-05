@@ -8,6 +8,8 @@ function arguments() {
     # Define init flag
 	arg_flag @_ --description "Use RBW_PROFILE=<config-key> to get auto-completion. Where config-key should be the equal to PASS_NAME_VAULTWARDEN in config"
     arg_flag @init --description "Initialize this isolated Bitwarden account"
+    # Suppress the start message, e.g. inside scripts (errors are still shown)
+    arg_flag @quiet --description "No start message (errors are still shown)"
     arg_value @email --description "Account email" --depends-on "ARG_INIT"
     arg_value @url --description "Vaultwarden URL" --depends-on "ARG_INIT"
     arg_value @pass_entry --description "Pass entry name" --depends-on "ARG_INIT"

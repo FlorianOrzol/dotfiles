@@ -11,5 +11,5 @@ function extension_start {
     # The area is the submodule above this action (public | private)
     local area="${PATH_EXTENSION_ARRAY[1]}"
 
-    mgit_action_create "$area" "${ARG_REPO:-}" "${ARG_LOCAL_ONLY:-0}"
+    mgit_action_create "$area" "${ARG_REPO:-}" "${ARG_LOCAL_ONLY:-0}" "${ARG_PATH:-}"
 }
