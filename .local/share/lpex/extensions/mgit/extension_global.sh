@@ -165,6 +165,7 @@ function mgit_action_status {
     local repos=()
     local pathspecs=()
     local files_new=()
+    local files_taken=()
     local repo relpath_new
 
     # Resolve the repositories to inspect
@@ -195,9 +196,16 @@ function mgit_action_status {
             mapfile -d '' -t files_new < <(_mgit_git "$area" "$repo" ls-files -z --others --ignored --exclude-standard -- "${pathspecs[@]}")
         fi
 
-        # List what the next push would add
+        # Files of other repositories in shared folders are not this repository's business
+        (( ${#files_new[@]} )) && _mgit_split_foreign @files_new @files_taken "$area" "$repo" "${files_new[@]}"
+
+        # List what the next push would add — public asks first
         for relpath_new in "${files_new[@]}"; do
-            printf '%b\n' " ${FONT_GREEN}+${FONT_RESET} ${relpath_new}  ${FONT_GRAY}(new, added on push)${FONT_RESET}"
+            if [[ "$area" == "public" ]]; then
+                printf '%b\n' " ${FONT_GREEN}+${FONT_RESET} ${relpath_new}  ${FONT_GRAY}(new, asked on push)${FONT_RESET}"
+            else
+                printf '%b\n' " ${FONT_GREEN}+${FONT_RESET} ${relpath_new}  ${FONT_GRAY}(new, added on push)${FONT_RESET}"
+            fi
         done
     done
 }
@@ -215,7 +223,8 @@ function mgit_action_add {
     local path_input="$3"
     local relpath=""
     local files=()
-    local pathspecs_exclude=()
+    local files_own=()
+    local files_taken=()
     local relpath_file
 
     # 1. --- Validation ---------------
@@ -253,8 +262,23 @@ function mgit_action_add {
         return 1
     fi
 
-    # A file may only live in one repository — otherwise clones overwrite each other
-    _mgit_check_overlap "$area" "$repo" "${files[@]}" || return 1
+    # A file lives in exactly one repository — files of others stay there (shared folder)
+    _mgit_split_foreign @files_own @files_taken "$area" "$repo" "${files[@]}"
+    if (( ${#files_taken[@]} )); then
+        output --info "${#files_taken[@]} of ${#files[@]} file(s) already belong to other repositories — they stay there:"
+        printf '  %s\n' "${files_taken[@]:0:20}"
+        (( ${#files_taken[@]} > 20 )) && output --info "… and $(( ${#files_taken[@]} - 20 )) more."
+    fi
+    files=("${files_own[@]}")
+
+    # Everything is taken: the folder can still be shared for future files
+    if (( ! ${#files[@]} )); then
+        if question "No free files. Register ~/${relpath} as shared folder, so new files can go to ${area}/${repo}?" --default-no; then
+            _mgit_list_add "$area" "$repo" tracked "$relpath"
+            OK "~/${relpath} registered as shared folder in ${area}/${repo}."
+        fi
+        return 0
+    fi
 
     # Public content gets the secret and size checks
     if [[ "$area" == "public" ]]; then
@@ -289,9 +313,8 @@ function mgit_action_add {
     fi
 
     # 4. --- Stage and remember ---------------
-    # Force-add past the '*' exclude, keep mgit's git dirs and the exclusions out
-    _mgit_pathspecs_exclude @pathspecs_exclude "$area" "$repo"
-    if ! _mgit_git "$area" "$repo" add -f -- ":(literal)${relpath}" "${pathspecs_exclude[@]}"; then
+    # Force-add exactly the reviewed files past the '*' exclude — never files of other repositories
+    if ! printf '%s\0' "${files[@]/#/:(literal)}" | _mgit_git "$area" "$repo" add -f --pathspec-from-file=- --pathspec-file-nul; then
         ERROR "git add failed for ~/${relpath}"
         return 1
     fi
@@ -377,7 +400,6 @@ function mgit_action_push {
     local message="${3:-Update $(date '+%Y-%m-%d %H:%M')}"
     local repos=()
     local files_changed=()
-    local files_new=()
     local repo count_ahead
     local count_failed=0
 
@@ -397,6 +419,11 @@ function mgit_action_push {
         # 1. --- Stage ---------------
         _mgit_stage_tracked "$area" "$repo" || { (( count_failed++ )); continue; }
 
+        # Shared folders: files of other repositories stay there
+        _mgit_drop_foreign "$area" "$repo"
+        # Public decides first which new files are published — the rest stays private
+        [[ "$area" == "public" ]] && _mgit_review_new_public "$area" "$repo"
+
         # 2. --- Review staged changes ---------------
         # Commit only when the index differs from HEAD
         if ! _mgit_git "$area" "$repo" diff --cached --quiet; then
@@ -404,14 +431,6 @@ function mgit_action_push {
             _mgit_git "$area" "$repo" diff --cached --name-status
 
             mapfile -d '' -t files_changed < <(_mgit_git "$area" "$repo" diff --cached --name-only -z --diff-filter=ACMRT)
-            mapfile -d '' -t files_new < <(_mgit_git "$area" "$repo" diff --cached --name-only -z --diff-filter=A)
-
-            # New files must not belong to another repository
-            if (( ${#files_new[@]} )) && ! _mgit_check_overlap "$area" "$repo" "${files_new[@]}"; then
-                ERROR "Nothing committed in ${area}/${repo}."
-                (( count_failed++ ))
-                continue
-            fi
 
             # Public: secret and size checks over everything that changed
             if [[ "$area" == "public" ]] && (( ${#files_changed[@]} )); then
@@ -419,14 +438,6 @@ function mgit_action_push {
                 if ! _mgit_check_public interactive "$(_mgit_worktree "$area" "$repo")" "${files_changed[@]}"; then
                     ERROR "Nothing committed in ${area}/${repo}."
                     (( count_failed++ ))
-                    continue
-                fi
-            fi
-
-            # Public: new files are confirmed one more time — they were never reviewed before
-            if [[ "$area" == "public" ]] && (( ${#files_new[@]} )); then
-                if ! question "Publish ${#files_new[@]} new file(s) in ${area}/${repo}?" --default-no; then
-                    output --info "Nothing committed in ${area}/${repo}."
                     continue
                 fi
             fi
@@ -1467,17 +1478,21 @@ function _mgit_list_remove {
 # Overlap between repositories and secret detection for the public area.
 # ==============================================================================
 
-# --- _mgit_check_overlap ---
-# @desc_short       : Fails when a file is already tracked by another local repository.
-# @usage            : _mgit_check_overlap <area> <repo> <relpath…>
+# --- _mgit_split_foreign ---
+# @desc_short       : Splits files into own ones and ones another local repository tracks.
+# @usage            : _mgit_split_foreign @own @foreign <area> <repo> <relpath…>
+# @parameter        : @own     | Files no other repository tracks
+# @parameter        : @foreign | Taken files as "<relpath>  → <area>/<repo>"
+# @notes            : Paths are compared absolute — home and project repos have other work trees.
 # ================================================================================
-function _mgit_check_overlap {
-    local area="$1"
-    local repo="$2"
-    shift 2
-    local -A files_foreign=()
-    local hits=()
-    local area_other repo_other relpath_file path_worktree path_worktree_other
+function _mgit_split_foreign {
+    local -n return_mgit_split_foreign_own="${1#@}"
+    local -n return_mgit_split_foreign_taken="${2#@}"
+    local area="$3"
+    local repo="$4"
+    shift 4
+    local -A map_owner_by_file=()
+    local area_other repo_other relpath_file path_worktree path_worktree_other owner
 
     # Index every file of every other cloned repository
     for area_other in "${MGIT_AREAS[@]}"; do
@@ -1487,24 +1502,118 @@ function _mgit_check_overlap {
             [[ -d "$(_mgit_path_gitdir "$area_other" "$repo_other")" ]] || continue
             path_worktree_other="$(_mgit_worktree "$area_other" "$repo_other")"
             while IFS= read -r -d '' relpath_file; do
-                files_foreign["${path_worktree_other}/${relpath_file}"]="${area_other}/${repo_other}"
+                map_owner_by_file["${path_worktree_other}/${relpath_file}"]="${area_other}/${repo_other}"
             done < <(_mgit_git "$area_other" "$repo_other" ls-files -z)
         done < <(mgit_repo_names "$area_other")
     done
 
     path_worktree="$(_mgit_worktree "$area" "$repo")"
-    # Collect every requested file that is taken already
+    return_mgit_split_foreign_own=()
+    return_mgit_split_foreign_taken=()
+    # Sort every file into one of the two lists
     for relpath_file in "$@"; do
-        [[ -n "${files_foreign[${path_worktree}/${relpath_file}]:-}" ]] && hits+=("${relpath_file}  → ${files_foreign[${path_worktree}/${relpath_file}]}")
+        owner="${map_owner_by_file[${path_worktree}/${relpath_file}]:-}"
+        if [[ -n "$owner" ]]; then
+            return_mgit_split_foreign_taken+=("${relpath_file}  → ${owner}")
+        else
+            return_mgit_split_foreign_own+=("$relpath_file")
+        fi
     done
+}
+
+# --- _mgit_check_overlap ---
+# @desc_short       : Fails when a file is already tracked by another local repository.
+# @usage            : _mgit_check_overlap <area> <repo> <relpath…>
+# @notes            : Strict variant for the pre-commit hook; add and push skip such files instead.
+# ================================================================================
+function _mgit_check_overlap {
+    local area="$1"
+    local repo="$2"
+    shift 2
+    local files_own=()
+    local files_taken=()
+
+    _mgit_split_foreign @files_own @files_taken "$area" "$repo" "$@"
 
     # No conflicts
-    (( ${#hits[@]} )) || return 0
+    (( ${#files_taken[@]} )) || return 0
 
-    ERROR "${#hits[@]} file(s) already belong to another repository:"
-    printf '  %s\n' "${hits[@]}" >&2
+    ERROR "${#files_taken[@]} file(s) already belong to another repository:"
+    printf '  %s\n' "${files_taken[@]}" >&2
     INFO "Remove them there first, or exclude them here with: lpex mgit ${area} rm ${repo} <path>"
     return 1
+}
+
+# --- _mgit_drop_foreign ---
+# @desc_short       : Unstages new files of shared folders that another repository owns.
+# @usage            : _mgit_drop_foreign <area> <repo>
+# ================================================================================
+function _mgit_drop_foreign {
+    local area="$1"
+    local repo="$2"
+    local files_new=()
+    local files_own=()
+    local files_taken=()
+    local relpaths_taken=()
+    local entry
+
+    mapfile -d '' -t files_new < <(_mgit_git "$area" "$repo" diff --cached --name-only -z --diff-filter=A)
+    # Nothing new: nothing can be taken
+    (( ${#files_new[@]} )) || return 0
+
+    _mgit_split_foreign @files_own @files_taken "$area" "$repo" "${files_new[@]}"
+    # All new files are free
+    (( ${#files_taken[@]} )) || return 0
+
+    # Strip the owner part, keep the path as literal pathspec
+    for entry in "${files_taken[@]}"; do
+        relpaths_taken+=(":(literal)${entry%%  → *}")
+    done
+    _mgit_git "$area" "$repo" rm -q --cached -- "${relpaths_taken[@]}"
+    output --info "${#files_taken[@]} new file(s) in shared folders belong to other repositories — left to them."
+}
+
+# --- _mgit_review_new_public ---
+# @desc_short       : Lets the user decide which new files really become public.
+# @usage            : _mgit_review_new_public <area> <repo>
+# @notes            : Declined files are unstaged and excluded for good, so a private
+# @notes            : repository with the same folder picks them up instead.
+# ================================================================================
+function _mgit_review_new_public {
+    local area="$1"
+    local repo="$2"
+    local files_new=()
+    local files_private=()
+    local relpath_file
+
+    mapfile -d '' -t files_new < <(_mgit_git "$area" "$repo" diff --cached --name-only -z --diff-filter=A)
+    # No new files: nothing to decide
+    (( ${#files_new[@]} )) || return 0
+
+    WARN "${#files_new[@]} new file(s) would become PUBLIC:"
+    printf '  %s\n' "${files_new[@]}"
+
+    # Fast path: everything is meant to be public
+    question "Publish all of them?" --default-no && return 0
+
+    # Per file, or keep the whole batch private
+    if question "Decide per file? (No = keep all of them private)" --default-no; then
+        for relpath_file in "${files_new[@]}"; do
+            question "Publish ${relpath_file}?" --default-no || files_private+=("$relpath_file")
+        done
+    else
+        files_private=("${files_new[@]}")
+    fi
+
+    # Everything was accepted one by one
+    (( ${#files_private[@]} )) || return 0
+
+    # Out of the index and onto the exclusion list — never asked again
+    _mgit_git "$area" "$repo" rm -q --cached -- "${files_private[@]/#/:(literal)}"
+    for relpath_file in "${files_private[@]}"; do
+        _mgit_list_add "$area" "$repo" excluded "$relpath_file"
+    done
+    output --info "${#files_private[@]} file(s) kept private — a private repository with this folder takes them."
 }
 
 # --- _mgit_check_public ---
