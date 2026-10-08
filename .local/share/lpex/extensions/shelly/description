@@ -1,0 +1,17 @@
+Shelly devices — inventory, overviews, setup and control (Gen1 + Gen2+).
+Inventory: shelly.db (one row per device, id = CLI key and MQTT login). Live data via HTTP API.
+Config: lpex --config shelly (scan ranges, password commands, network + profile defaults).
+
+  scan [--range …] [--add]                 find Shellys in the LAN, update known ones, add new ones
+  setup [--name|--ip|--dhcp|--room|--profile]   new device in access-point mode → WLAN, profile, inventory
+  list [--view basic|energy|network|firmware] [--online|--offline|--on|--off] [--room …] [--cached]
+  status <device> [--raw]                  details of one device (live, cached when offline)
+  switch <device> on|off|toggle [--channel n] [--brightness 1-100]
+  cover <device> open|close|stop|0-100
+  config show|set|apply|raw <device> …     settings: view, change, apply profile, raw API
+  update <device|all> [--check]            firmware
+  reboot <device>
+  edit <device> [--id|--name|--room|--profile|--notes]   inventory data
+  rm <device>                              remove from the inventory
+
+Passwords come from *_PASS_CMD in the config, or SHELLY_AUTH/MQTT/WIFI_PASSWORD in the environment.

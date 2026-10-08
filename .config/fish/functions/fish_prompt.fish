@@ -69,6 +69,7 @@ function fish_prompt
 
     # Construct and print the multi-line prompt.
     # Line 1: Contains status, mode, and current path.
+	#	echo -s "" extra line for spacing
     echo -s "$color_fg_hellgrey" "╭─" "$color_fg_grey" "" "$color_status" "$color_bg_lightgrey" "$status_sign" $color_fg_hellgrey"  $mode_prompt ╱ "  "$color_fg_blue" $mypath " " "$git_info" "$color_normal" "$color_fg_grey" "▓▒░" "$color_normal" 
     # Line 2: The prompt indicator, colored light grey.
     echo -s "$color_fg_hellgrey" "╰─ " "$color_normal"

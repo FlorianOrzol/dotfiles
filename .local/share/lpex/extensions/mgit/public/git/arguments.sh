@@ -8,12 +8,12 @@
 # @desc_short  : Registers CLI arguments.
 # @usage       : lpex mgit public git <repo> <git-args…>
 #
-# @repo        : <repo>       | Repository (positional)
+# @repo        : <repo>       | Repository (positional, required first — sets --git-dir/--work-tree)
 # @wrap        : <git-args…>  | Passed to git unchanged, with git completion
 # ==============================================================================
 function arguments {
-    # Repository — fzf offers the registered ones when missing
-    arg_direct @repo --description "Repository" --fzf --option-cmd "mgit_repo_names public"
+    # Repository first and required — completion offers only repositories until it is given
+    arg_direct @repo --required --description "Repository" --fzf --option-cmd "mgit_repo_names public"
 
     # Everything else goes to git — and so does the completion
     arg_wrap "git"

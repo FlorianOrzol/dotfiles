@@ -4,8 +4,8 @@ Manage all git repositories (public & private) with $HOME as work tree.
 
   list   [repo] [--files]          repositories, remotes, tracked paths
   status [repo]                    changes + files the next push adds
-  add    <repo> <path>             track a file/directory (safety checks)
-  rm     <repo> <path>             stop tracking (files stay on disk)
+  add    <repo> --path <path>      track a file/directory (safety checks)
+  rm     <repo> --path <path>      stop tracking (files stay on disk)
   push   [repo] [--message …]      pick up new files, commit, upload
   pull   [repo]                    update; clones repositories missing here
   create <repo> [--path <dir>]     new repository on the servers + locally

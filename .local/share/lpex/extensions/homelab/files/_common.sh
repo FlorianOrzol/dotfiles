@@ -1,29 +1,11 @@
 #!/bin/bash
 # ==============================================================================
 # @meta_name        : _common.sh
-# @desc_short       : Shared mirror-path helpers for all files actions.
+# @desc_short       : Mirror-path parsing for all files actions.
+# @notes            : resolve_device_to_mirror_path, get_client_mirror_dir and
+#                     _is_unified_mirror_type live in extension_global.sh (shared with cmd script).
 #                     Sourced unconditionally by files/main.sh.
 # ==============================================================================
-
-# Types that share ONE mirror directory across all devices of that type.
-# Per-device types (ct, vm, container) keep individual subdirectories.
-_UNIFIED_MIRROR_TYPES=("host" "observer")
-
-# ==============================================================================
-# --- _is_unified_mirror_type ---
-# @desc_short  : Returns 0 if the type uses a shared mirror dir (no per-device subdir).
-# @usage       : _is_unified_mirror_type <type>
-# ==============================================================================
-function _is_unified_mirror_type {
-    local type="$1"
-    local unified_type
-
-    # Compare against every unified type — match means shared mirror directory.
-    for unified_type in "${_UNIFIED_MIRROR_TYPES[@]}"; do
-        [[ "$type" == "$unified_type" ]] && return 0
-    done
-    return 1
-}
 
 # ==============================================================================
 # --- parse_mirror_path ---
@@ -85,65 +67,3 @@ function parse_mirror_path {
     fi
 }
 
-# ==============================================================================
-# --- get_client_mirror_dir ---
-# @desc_short  : Maps a device type to its mirror subdirectory path.
-# @notes       : Client types (ct, vm) live under client/ — all others map 1:1.
-# ==============================================================================
-function get_client_mirror_dir {
-    local type="$1"
-
-    # Return the mirror subdirectory path for the given device type.
-    case "$type" in
-        ct)  echo "client/ct" ;;   # LXC containers live under client/ct/
-        vm)  echo "client/vm" ;;   # VMs live under client/vm/
-        *)   echo "$type" ;;       # host, observer, container (legacy) map directly
-    esac
-}
-
-# ==============================================================================
-# --- resolve_device_to_mirror_path ---
-# @desc_short  : Converts a device name to its full local mirror root path.
-#                Input format: host_1, observer_2, container_1111, vm_101.
-#                Container and VM names carry a type prefix that is stripped.
-# @usage       : resolve_device_to_mirror_path <device_name> <nameref_path>
-# @parameter   : $1 | device_name  | Device name as used in the CLI (e.g. ct_3040)
-# @parameter   : $2 | nameref_path | Variable to receive the full mirror root path
-# ==============================================================================
-function resolve_device_to_mirror_path {
-    local device_input="$1"
-    local -n return_resolve_device_to_mirror_path="${2#@}"
-    local type name
-
-    # Derive type and directory name from the input — ct/vm/container carry an explicit prefix.
-    case "$device_input" in
-        ct_*)        type="ct";        name="${device_input#ct_}" ;;
-        vm_*)        type="vm";        name="${device_input#vm_}" ;;
-        container_*) type="container"; name="${device_input#container_}" ;;
-        host_*)      type="host";      name="$device_input" ;;
-        observer_*)  type="observer";  name="$device_input" ;;
-        *)  ERROR "Cannot resolve device: '${device_input}' — expected host_*, observer_*, ct_*, vm_*, or container_*"
-            return 1 ;;
-    esac
-
-    # Map type to its actual mirror subdirectory — client types live under client/.
-    local mirror_dir
-    mirror_dir=$(get_client_mirror_dir "$type")
-
-    local path
-    if _is_unified_mirror_type "$type"; then
-        # Unified types share one mirror directory — no per-device subdirectory.
-        path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}"
-    else
-        # Per-device types have individual subdirectories keyed by device name/ID.
-        path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}/${name}"
-    fi
-
-    # Abort if the mirror directory does not exist — nothing to push.
-    if [[ ! -d "$path" ]]; then
-        ERROR "Mirror directory not found: ${path}"
-        return 1
-    fi
-
-    return_resolve_device_to_mirror_path="$path"
-}

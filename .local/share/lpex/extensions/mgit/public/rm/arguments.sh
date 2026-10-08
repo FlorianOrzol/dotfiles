@@ -6,15 +6,15 @@
 
 # --- function arguments ---
 # @desc_short  : Registers CLI arguments.
-# @usage       : lpex mgit public rm <repo> <path>
+# @usage       : lpex mgit public rm <repo> --path <path>
 #
-# @repo        : <repo>   | Repository (positional)
-# @path        : <path>   | File or directory below $HOME (positional)
+# @repo        : <repo>         | Repository (positional, required first)
+# @options     : --path <path>  | File or directory below $HOME
 # ==============================================================================
 function arguments {
-    # Repository — fzf offers the registered ones when missing
-    arg_direct @repo --description "Repository" --fzf --option-cmd "mgit_repo_names public"
+    # Repository first and required — completion offers only repositories until it is given
+    arg_direct @repo --required --description "Repository" --fzf --option-cmd "mgit_repo_names public"
 
     # Path to stop tracking — native path completion
-    arg_direct @path --description "File or directory below \$HOME" --type path
+    arg_value @path --description "File or directory below \$HOME" --type path
 }

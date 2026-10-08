@@ -233,7 +233,7 @@ function mgit_action_add {
 
     # A path is required — fzf cannot offer one
     if [[ -z "$path_input" ]]; then
-        ERROR "No path specified. Usage: lpex mgit ${area} add ${repo} <path>"
+        ERROR "No path specified. Usage: lpex mgit ${area} add ${repo} --path <path>"
         return 1
     fi
 
@@ -249,6 +249,14 @@ function mgit_action_add {
     # Never track the git dirs of mgit itself
     if [[ "$relpath" == "$RELPATH_MGIT_REPOS" || "$relpath" == "$RELPATH_MGIT_REPOS/"* ]]; then
         ERROR "The git dirs of mgit cannot be added: ~/${relpath}"
+        return 1
+    fi
+
+    # A folder that is its own repository would only be stored as a pointer (gitlink), never its files
+    if [[ -e "${HOME}/${relpath}/.git" ]]; then
+        ERROR "~/${relpath} is its own git repository."
+        INFO "Git would store only a link to its commit. Take it over as project repository instead:"
+        INFO "  lpex mgit ${area} import <repo> --path ~/${relpath}"
         return 1
     fi
 
@@ -348,7 +356,7 @@ function mgit_action_rm {
 
     # A path is required
     if [[ -z "$path_input" ]]; then
-        ERROR "No path specified. Usage: lpex mgit ${area} rm ${repo} <path>"
+        ERROR "No path specified. Usage: lpex mgit ${area} rm ${repo} --path <path>"
         return 1
     fi
 
@@ -587,7 +595,7 @@ function mgit_action_create {
         done
     fi
 
-    OK "${area}/${repo} created. Add content with: lpex mgit ${area} add ${repo} <path>"
+    OK "${area}/${repo} created. Add content with: lpex mgit ${area} add ${repo} --path <path>"
 }
 
 # --- mgit_action_import ---
@@ -661,7 +669,7 @@ function mgit_action_import {
 
     # Home repositories need their roots, or push only sees already tracked files
     if [[ -z "$relpath_worktree" ]]; then
-        INFO "Register the tracked roots so push finds new files: lpex mgit ${area} add ${repo} <path>"
+        INFO "Register the tracked roots so push finds new files: lpex mgit ${area} add ${repo} --path <path>"
     fi
 }
 
@@ -1190,13 +1198,19 @@ function _mgit_collect_files {
     local repo="$3"
     local relpath="$4"
     local files_found=()
+    local relpaths_nested=()
     local relpath_file
 
-    # Walk from $HOME so every printed path is already relative to it
+    # Walk from $HOME so every printed path is already relative to it; folders holding a .git
+    # are nested repositories — skipped as a whole, git could only store a link to them
     mapfile -d '' -t files_found < <(
-        cd "$HOME" && find "$relpath" \( -path "$RELPATH_MGIT_REPOS" -o -name .git \) -prune \
+        cd "$HOME" && find "$relpath" \( -path "$RELPATH_MGIT_REPOS" -o -name .git -o -type d -exec test -e '{}/.git' \; \) -prune \
             -o \( -type f -o -type l \) -print0
     )
+
+    # Name the skipped nested repositories, so nothing disappears silently
+    mapfile -t relpaths_nested < <(cd "$HOME" && find "$relpath" -mindepth 1 -name .git -printf '%h\n' 2>/dev/null)
+    (( ${#relpaths_nested[@]} )) && WARN "Skipped nested git repositories: ${relpaths_nested[*]}"
 
     return_mgit_collect_files=()
     # Drop everything this repository excludes
@@ -1293,6 +1307,9 @@ function _mgit_stage_tracked {
         _mgit_git "$area" "$repo" add -f -- "${pathspecs[@]}" || { ERROR "git add failed in ${area}/${repo}."; return 1; }
     fi
 
+    # Nested repositories end up as gitlinks (mode 160000) — a pointer without files, never wanted
+    _mgit_drop_gitlinks "$area" "$repo"
+
     # Exclusions may still sit in the index from earlier commits — drop them there
     mapfile -t relpaths_excluded < <(_mgit_read_list "$area" "$repo" excluded | sed 's|^|:(literal)|')
     # Only when the repository has exclusions at all
@@ -1300,6 +1317,25 @@ function _mgit_stage_tracked {
         _mgit_git "$area" "$repo" rm -r -q --cached --ignore-unmatch -- "${relpaths_excluded[@]}" >/dev/null
     fi
     return 0
+}
+
+# --- _mgit_drop_gitlinks ---
+# @desc_short       : Removes gitlinks (nested repositories) from the index of a home repository.
+# @usage            : _mgit_drop_gitlinks <area> <repo>
+# ================================================================================
+function _mgit_drop_gitlinks {
+    local area="$1"
+    local repo="$2"
+    local relpaths_gitlink=()
+
+    # ls-files -s prints '<mode> <hash> <stage>\t<path>' — 160000 marks a gitlink
+    mapfile -t relpaths_gitlink < <(_mgit_git "$area" "$repo" ls-files -s | awk -F'\t' '$1 ~ /^160000 / {print $2}')
+    # No nested repository picked up
+    (( ${#relpaths_gitlink[@]} )) || return 0
+
+    _mgit_git "$area" "$repo" rm -q --cached -- "${relpaths_gitlink[@]/#/:(literal)}"
+    WARN "Skipped nested git repositories (only a link would be stored): ${relpaths_gitlink[*]}"
+    INFO "Take them over as project repositories: lpex mgit ${area} import <repo> --path ~/<folder>"
 }
 
 # --- _mgit_init_local ---
@@ -1479,10 +1515,13 @@ function _mgit_list_remove {
 # ==============================================================================
 
 # --- _mgit_split_foreign ---
-# @desc_short       : Splits files into own ones and ones another local repository tracks.
+# @desc_short       : Splits files into own ones and ones another repository of the same area tracks.
 # @usage            : _mgit_split_foreign @own @foreign <area> <repo> <relpath…>
-# @parameter        : @own     | Files no other repository tracks
+# @parameter        : @own     | Files no other repository of the area tracks
 # @parameter        : @foreign | Taken files as "<relpath>  → <area>/<repo>"
+# @notes            : Only the own area counts: public and private may hold the same file
+# @notes            : (private as full copy). Within an area a file has exactly one owner,
+# @notes            : otherwise two clones would write the same file.
 # @notes            : Paths are compared absolute — home and project repos have other work trees.
 # ================================================================================
 function _mgit_split_foreign {
@@ -1494,8 +1533,8 @@ function _mgit_split_foreign {
     local -A map_owner_by_file=()
     local area_other repo_other relpath_file path_worktree path_worktree_other owner
 
-    # Index every file of every other cloned repository
-    for area_other in "${MGIT_AREAS[@]}"; do
+    # Index every file of every other cloned repository of the same area
+    for area_other in "$area"; do
         while IFS= read -r repo_other; do
             # Skip the repository itself and repositories missing on this machine
             [[ "$area_other" == "$area" && "$repo_other" == "$repo" ]] && continue
@@ -1540,7 +1579,7 @@ function _mgit_check_overlap {
 
     ERROR "${#files_taken[@]} file(s) already belong to another repository:"
     printf '  %s\n' "${files_taken[@]}" >&2
-    INFO "Remove them there first, or exclude them here with: lpex mgit ${area} rm ${repo} <path>"
+    INFO "Remove them there first, or exclude them here with: lpex mgit ${area} rm ${repo} --path <path>"
     return 1
 }
 

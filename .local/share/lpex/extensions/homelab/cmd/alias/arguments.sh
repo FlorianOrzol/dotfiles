@@ -6,10 +6,11 @@
 
 # --- function arguments ---
 # @desc_short  : Registers CLI arguments for running a saved shortcut.
-# @usage       : lpex homelab cmd alias <alias> [--device <device...>]
+# @usage       : lpex homelab cmd alias <alias> [--device <device...>] [--set <name=value...>]
 #
 # @options     : <alias>    | Saved shortcut (positional, fzf)
 #                --device   | Limit the run to some of its devices (default: all of them)
+#                --set      | Placeholder values name=value (missing ones are asked)
 # ==============================================================================
 function arguments {
     local alias_selected
@@ -26,4 +27,8 @@ function arguments {
     # No --depends-on "ARG_ALIAS": the alias is positional, '--alias' is never typed
     arg_value @device --description "Run only on these device(s)" --multi \
         --option-cmd "get_cmd_alias_devices $(printf '%q' "$alias_selected")"
+
+    # Placeholder values: completion offers the {names} found in the stored command
+    arg_value @set --description "Placeholder value(s) name=value" --multi \
+        --option-cmd "get_cmd_alias_placeholders $(printf '%q' "$alias_selected")"
 }

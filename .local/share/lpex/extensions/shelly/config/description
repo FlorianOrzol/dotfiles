@@ -1,0 +1,6 @@
+Device settings — show, set, apply a profile, raw API calls.
+
+  show <device> [--filter …]        all settings as path = value
+  set <device> --name|--cloud|--mqtt|--auth|--default-state|--wifi …
+  apply <device> [--profile …] [--only cloud,mqtt,auth]
+  raw <device> <path|Method> [--params json]   anything else (Gen1 path / Gen2 RPC)

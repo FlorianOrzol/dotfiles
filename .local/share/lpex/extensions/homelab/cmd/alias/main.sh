@@ -28,6 +28,9 @@ function extension_start {
     # Loads CMD_CMD and CMD_DEVICES
     cmd_read_alias "$alias" || return 1
 
+    # Replace {name} placeholders — from --set or asked
+    _fill_placeholders || return 1
+
     # Devices are stored space-separated — split into an array
     read -ra devices_stored <<< "$CMD_DEVICES"
 
@@ -103,4 +106,49 @@ function _resolve_alias_order {
 
     # The word taken as alias was really a device
     DEVICES_GIVEN=("$ARG_ALIAS" "${devices_rest[@]}")
+}
+
+# --- _fill_placeholders ---
+# @desc_short  : Replaces every {name} in CMD_CMD with a shell-quoted value.
+# @notes       : Values come from --set name=value, missing ones are asked.
+#                Each value is inserted %q-quoted, so spaces and quotes in a value
+#                cannot change the command. ${VAR} (shell syntax) stays untouched.
+# ==============================================================================
+function _fill_placeholders {
+    local -a names
+    local name value entry value_quoted token_shell
+
+    # {name} not preceded by $ — same rule as get_cmd_alias_placeholders
+    mapfile -t names < <(grep -oE '(^|[^$])\{[a-z][a-z0-9_]*\}' <<< "$CMD_CMD" \
+                         | grep -oE '\{[a-z][a-z0-9_]*\}' | tr -d '{}' | sort -u)
+
+    # A command without placeholders runs as stored
+    (( ${#names[@]} == 0 )) && return 0
+
+    for name in "${names[@]}"; do
+        value=""
+
+        # --set name=value wins; the last occurrence counts
+        for entry in "${ARG_SET[@]}"; do
+            [[ "$entry" == "${name}="* ]] && value="${entry#*=}"
+        done
+
+        # Not given — ask; an empty answer would leave a broken command
+        if [[ -z "$value" ]]; then
+            lx input @value --prompt "Value for {${name}}" || return 1
+        fi
+        if [[ -z "$value" ]]; then
+            ERROR "No value for {${name}} — nothing run."
+            return 1
+        fi
+
+        # Protect ${name} (shell syntax) while {name} is replaced, then restore it.
+        # Replacements are quoted: since bash 5.2 an unquoted '&' in the replacement
+        # means "the matched text" — the \& from %q would turn into a bare &.
+        value_quoted=$(printf '%q' "$value")
+        token_shell="__LPEX_SHELL_VAR_${name}__"
+        CMD_CMD="${CMD_CMD//\$\{${name}\}/"${token_shell}"}"
+        CMD_CMD="${CMD_CMD//\{${name}\}/"${value_quoted}"}"
+        CMD_CMD="${CMD_CMD//${token_shell}/\$\{${name}\}}"
+    done
 }

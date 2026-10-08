@@ -190,6 +190,24 @@ function get_cmd_alias_devices {
              | tr ' ' '\n' | sort -u)
 }
 
+# --- get_cmd_alias_placeholders ---
+# @desc_short  : Prints the {placeholders} of one shortcut as "name= # placeholder".
+# @usage       : get_cmd_alias_placeholders <alias>
+# @notes       : Placeholders are {lowercase_name}. ${VAR} is shell syntax and is
+#                left alone — only braces not preceded by '$' count.
+# ==============================================================================
+function get_cmd_alias_placeholders {
+    local alias="$1"
+
+    # Without a database or an alias there is nothing to list
+    [[ -f "$FILE_CMDS_DB" && -n "$alias" ]] || return 0
+
+    # Read the command, pick {name} not preceded by $, print each name once
+    sqlite3 "$FILE_CMDS_DB" "SELECT cmd FROM ${TABLE_CMDS} WHERE alias='${alias//\'/\'\'}';" 2>/dev/null \
+        | grep -oE '(^|[^$])\{[a-z][a-z0-9_]*\}' | grep -oE '\{[a-z][a-z0-9_]*\}' | tr -d '{}' | sort -u \
+        | sed 's/$/= # placeholder/'
+}
+
 # --- cmd_db_init ---
 # @desc_short  : Creates the shortcut table if it does not exist yet.
 # @usage       : cmd_db_init
@@ -328,6 +346,230 @@ function cmd_save_alias {
     fi
 
     OK "Saved '${alias}' for ${devices[*]}."
+}
+
+# ==============================================================================
+# --- Mirror Paths ---
+# Device → local mirror directory. Shared by 'files' and 'cmd script'.
+# Exported: 'cmd script' lists scripts inside --option-cmd subshells.
+# ==============================================================================
+
+# --- _is_unified_mirror_type ---
+# @desc_short  : Returns 0 if the type uses a shared mirror dir (no per-device subdir).
+# @usage       : _is_unified_mirror_type <type>
+# @notes       : case instead of an array — arrays are not exported into subshells.
+# ==============================================================================
+function _is_unified_mirror_type {
+    local type="$1"
+
+    # host and observer share ONE mirror directory across all devices of that type
+    case "$type" in
+        host|observer) return 0 ;;
+        *)             return 1 ;;
+    esac
+}
+
+# --- get_client_mirror_dir ---
+# @desc_short  : Maps a device type to its mirror subdirectory path.
+# @notes       : Client types (ct, vm) live under client/ — all others map 1:1.
+# ==============================================================================
+function get_client_mirror_dir {
+    local type="$1"
+
+    # Return the mirror subdirectory path for the given device type.
+    case "$type" in
+        ct)  echo "client/ct" ;;   # LXC containers live under client/ct/
+        vm)  echo "client/vm" ;;   # VMs live under client/vm/
+        *)   echo "$type" ;;       # host, observer, container (legacy) map directly
+    esac
+}
+
+# --- resolve_device_to_mirror_path ---
+# @desc_short  : Converts a device name to its full local mirror root path.
+#                Input format: host_1, observer_2, container_1111, vm_101.
+#                Container and VM names carry a type prefix that is stripped.
+# @usage       : resolve_device_to_mirror_path <device_name> <nameref_path>
+# @parameter   : $1 | device_name  | Device name as used in the CLI (e.g. ct_3040)
+# @parameter   : $2 | nameref_path | Variable to receive the full mirror root path
+# ==============================================================================
+function resolve_device_to_mirror_path {
+    local device_input="$1"
+    local -n return_resolve_device_to_mirror_path="${2#@}"
+    local type name
+
+    # Derive type and directory name from the input — ct/vm/container carry an explicit prefix.
+    case "$device_input" in
+        ct_*)        type="ct";        name="${device_input#ct_}" ;;
+        vm_*)        type="vm";        name="${device_input#vm_}" ;;
+        container_*) type="container"; name="${device_input#container_}" ;;
+        host_*)      type="host";      name="$device_input" ;;
+        observer_*)  type="observer";  name="$device_input" ;;
+        *)  ERROR "Cannot resolve device: '${device_input}' — expected host_*, observer_*, ct_*, vm_*, or container_*"
+            return 1 ;;
+    esac
+
+    # Map type to its actual mirror subdirectory — client types live under client/.
+    local mirror_dir
+    mirror_dir=$(get_client_mirror_dir "$type")
+
+    local path
+    if _is_unified_mirror_type "$type"; then
+        # Unified types share one mirror directory — no per-device subdirectory.
+        path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}"
+    else
+        # Per-device types have individual subdirectories keyed by device name/ID.
+        path="${PATH_EXTENSION_DATA}/mirror/${mirror_dir}/${name}"
+    fi
+
+    # Abort if the mirror directory does not exist — nothing to push.
+    if [[ ! -d "$path" ]]; then
+        ERROR "Mirror directory not found: ${path}"
+        return 1
+    fi
+
+    return_resolve_device_to_mirror_path="$path"
+}
+
+# ==============================================================================
+# --- Script Discovery (cmd script) ---
+# Reads the device mirror (= what 'files --push' deployed) instead of the device:
+# completion stays fast and works offline. The script header is the single source
+# for descriptions and options — see codestyle/5_Server_Scripts.md.
+# ==============================================================================
+
+# --- _script_header_field ---
+# @desc_short  : Prints the first line of a field from the file header of a script.
+# @usage       : _script_header_field <file> <tag>
+# @parameter   : $1 | file | Script file
+# @parameter   : $2 | tag  | Field name without @ (e.g. desc_short)
+# ==============================================================================
+function _script_header_field {
+    local file="$1"
+    local tag="$2"
+
+    # Only the first comment block counts — function headers below use the same tags
+    awk -v tag="$tag" '
+        NR > 1 && !/^#/ { exit }
+        $0 ~ "^# @" tag " *:" { sub("^# @" tag " *: ?", ""); print; exit }
+    ' "$file"
+}
+
+# --- get_cmd_device_scripts ---
+# @desc_short  : Prints the runnable scripts of a device as "rel/path.sh # description".
+# @usage       : get_cmd_device_scripts <device> [--all]
+# @parameter   : $1 | device | host_N, observer_N, ct_<id>, vm_<id>
+# @parameter   : $2 | --all  | Also list service scripts, marked [service]
+# @notes       : Hidden: *_functions.sh, script_helpers.sh, and service scripts —
+#                started by an ExecStart of the mirror's unit templates AND without
+#                @param_* in their header. A unit-started script with parameters
+#                (job-backup-nightly.sh --trigger) stays visible: it is also run by hand.
+# ==============================================================================
+function get_cmd_device_scripts {
+    local device="$1"
+    local mode_all=0
+    local path_mirror path_bin targets_units file_script rel desc
+
+    [[ "$2" == "--all" ]] && mode_all=1
+
+    # Unknown device or no mirror yet — empty list, never an error in completion
+    resolve_device_to_mirror_path "$device" @path_mirror 2>/dev/null || return 0
+    path_bin="${path_mirror}/opt/homelab/bin"
+    [[ -d "$path_bin" ]] || return 0
+
+    # Script paths started by systemd units of this mirror, relative to bin/
+    targets_units=$(grep -rhoE 'ExecStart(Pre)?=-?/opt/homelab/bin/[^ "]+' \
+                        "${path_mirror}/opt/homelab/systemd" 2>/dev/null \
+                    | sed -E 's#^[^=]+=-?/opt/homelab/bin/##')
+
+    # One line per script, sorted by path
+    while IFS= read -r file_script; do
+        rel="${file_script#"${path_bin}"/}"
+
+        # Shared function files are sourced, never run
+        case "${rel##*/}" in
+            *_functions.sh|script_helpers.sh) continue ;;
+        esac
+
+        desc=$(_script_header_field "$file_script" "desc_short")
+
+        # Service script: unit-started and nothing to pass by hand
+        if grep -qxF "$rel" <<< "$targets_units" \
+              && ! awk 'NR > 1 && !/^#/ { exit } /^# @param_/ { found = 1 } END { exit !found }' "$file_script"; then
+            (( mode_all )) || continue
+            desc="[service] ${desc}"
+        fi
+
+        echo "${rel} # ${desc:-(no description)}"
+    done < <(find "$path_bin" -type f -name '*.sh' | sort)
+}
+
+# --- cmd_script_file ---
+# @desc_short  : Prints the mirror file of a device script; fails when it is not there.
+# @usage       : file=$(cmd_script_file <device> <rel/path.sh>) || return 1
+# ==============================================================================
+function cmd_script_file {
+    local device="$1"
+    local rel="$2"
+    local path_mirror
+
+    # Device without mirror cannot be checked
+    resolve_device_to_mirror_path "$device" @path_mirror 2>/dev/null || return 1
+
+    # The script must exist in the mirror — otherwise it is unknown, not just undeployed
+    [[ -f "${path_mirror}/opt/homelab/bin/${rel}" ]] || return 1
+    echo "${path_mirror}/opt/homelab/bin/${rel}"
+}
+
+# --- cmd_script_header_args ---
+# @desc_short  : Turns @param_opt/@param_fixed of a script header into argument specs.
+# @usage       : cmd_script_header_args <file>
+# @desc_detailed: Prints one line per argument, fields separated by \x1f: kind, name, choices, description
+#                 FLAG  generate ""                --generate              | …
+#                 VALUE user     ""                --user <name>           | …
+#                 VALUE trigger  "auto manual"     --trigger <auto|manual> | …
+#                 POS   ""       "on off status"   on|off|status           | …
+#                 POS   ""       ""                <name> / NAME / $1      | …
+#                 Only the first line of each field is read; "-h, --help" is skipped.
+# ==============================================================================
+function cmd_script_header_args {
+    local file="$1"
+
+    # \x1f as separator: read with IFS=tab would merge empty columns
+    awk -v SEP=$'\x1f' '
+        # Header ends at the first non-comment line
+        NR > 1 && !/^#/ { exit }
+
+        /^# @param_(opt|fixed) *:/ {
+            line = $0; sub(/^# @param_(opt|fixed) *: ?/, "", line)
+
+            # Key = everything before the first " | ", description = the rest
+            pos = index(line, " | ")
+            if (pos == 0) { key = line; desc = "" }
+            else { key = substr(line, 1, pos - 1); desc = substr(line, pos + 3) }
+            gsub(/^ +| +$/, "", key); gsub(/^ +| +$/, "", desc)
+
+            # Old template format "$1 | NAME | description" — keep only the description
+            while (index(desc, " | ") > 0) desc = substr(desc, index(desc, " | ") + 3)
+
+            if (key ~ /^-h,/ || key ~ /^--help/) next
+
+            # Choices: "a|b|c" as whole key, or "<a|b|c>" inside an option key
+            choices = ""
+            if (match(key, /<[a-z0-9_-]+(\|[a-z0-9_-]+)+>/)) { choices = substr(key, RSTART + 1, RLENGTH - 2) }
+            else if (key ~ /^[a-z0-9_-]+(\|[a-z0-9_-]+)+$/) { choices = key }
+            gsub(/\|/, " ", choices)
+
+            # --option <value> or --option
+            if (key ~ /^--[a-z][a-z0-9-]*/) {
+                name = key; sub(/^--/, "", name); sub(/[ <=\[].*$/, "", name)
+                kind = (key ~ /[<=\[]/) ? "VALUE" : "FLAG"
+                print kind SEP name SEP choices SEP desc
+                next
+            }
+
+            print "POS" SEP SEP choices SEP (desc != "" ? desc : key)
+        }
+    ' "$file"
 }
 
 # ==============================================================================
@@ -557,7 +799,8 @@ function execute_on_container {
 
     # Two quoting levels: %q for sh -c inside the container, %q for the local bash -c
     cmd_host="pct exec ${container_id} -- sh -c $(printf '%q' "$cmd")"
-    INFO "ct_${container_id} (${host}): ${cmd}"
+    # Callers that print their own line set EXECUTE_INFO=0 (cmd script hides its wrapper)
+    [[ "${EXECUTE_INFO:-1}" == "1" ]] && INFO "ct_${container_id} (${host}): ${cmd}"
     lx cmd --run "ssh $(_ssh_tty_opts) ${user}@${ip} $(printf '%q' "$cmd_host")"
 }
 
@@ -615,7 +858,8 @@ function execute_on_vm {
 
     # Two quoting levels: %q for sh -c inside the VM, %q for the local bash -c
     cmd_host="qm guest exec ${vm_id} -- sh -c $(printf '%q' "$cmd")"
-    INFO "vm_${vm_id} (${host}): ${cmd}"
+    # Callers that print their own line set EXECUTE_INFO=0 (cmd script hides its wrapper)
+    [[ "${EXECUTE_INFO:-1}" == "1" ]] && INFO "vm_${vm_id} (${host}): ${cmd}"
     lx cmd --run "ssh ${user}@${ip} $(printf '%q' "$cmd_host")"
 }
 
@@ -1367,7 +1611,10 @@ function _ha_read_removed {
 # This block runs once on source and makes all device-list helpers subshell-safe.
 # ==============================================================================
 export -f get_hosts get_observers get_nodes get_containers get_vms get_ha_clients share_mounted _fetch_list_dir
-export -f get_cmd_devices get_cmd_aliases get_cmd_alias_devices
+export -f get_cmd_devices get_cmd_aliases get_cmd_alias_devices get_cmd_alias_placeholders
+export -f _is_unified_mirror_type get_client_mirror_dir resolve_device_to_mirror_path
+export -f get_cmd_device_scripts _script_header_field
+export PATH_EXTENSION_DATA
 export FILE_CMDS_DB TABLE_CMDS
 # PORT_/TIMEOUT_/THRESHOLD_ cover share_reachable's config (homelab_functions.sh) — extend
 # this list whenever a new --option-cmd needs another config.conf variable in its subshell.
