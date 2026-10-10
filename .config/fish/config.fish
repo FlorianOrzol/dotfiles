@@ -76,10 +76,10 @@ abbr -a hl 'lpex homelab'
 set -gx FZF_DEFAULT_COMMAND 'fd --type f --hidden --exclude .git'
 
 # Custom function `lf`: A wrapper around 'fd' that allows searching for files using multiple substrings.
-function lf --description "Sucht mit fd über mehrere Teilstrings"
+function ldf --description "Sucht mit fd über mehrere Teilstrings"
 	# Check if any search terms are provided; if not, display usage information and return an error.
     if test (count $argv) -eq 0
-        echo "Usage: lf <search terms>"
+        echo "Usage: ldf <search terms>"
         return 1
     end
 	# Joins the parts of the search string with '.*' 

@@ -156,7 +156,11 @@ function kb_preview {
 # @usage            : kb_view <name>
 # ================================================================================
 function kb_view {
-    "$CMD_KB_VIEWER" -s dark -p "$(kb_file "$1")"
+    local count_columns
+
+    # glow wraps at 80 columns (glow.yml) — use the full terminal width instead
+    count_columns=$(tput cols 2>/dev/null || echo "${COLUMNS:-80}")
+    "$CMD_KB_VIEWER" -s dark -w "$count_columns" -p "$(kb_file "$1")"
 }
 
 # --- kb_open_editor ---

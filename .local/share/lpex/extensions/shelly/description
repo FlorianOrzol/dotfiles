@@ -6,6 +6,7 @@ Config: lpex --config shelly (scan ranges, password commands, network + profile 
   setup [--name|--ip|--dhcp|--room|--profile]   new device in access-point mode → WLAN, profile, inventory
   list [--view basic|energy|network|firmware] [--online|--offline|--on|--off] [--room …] [--cached]
   status <device> [--raw]                  details of one device (live, cached when offline)
+  get <device[,…]|all> --field … [--path …] [--json]   single values (bare value for scripts)
   switch <device> on|off|toggle [--channel n] [--brightness 1-100]
   cover <device> open|close|stop|0-100
   config show|set|apply|raw <device> …     settings: view, change, apply profile, raw API

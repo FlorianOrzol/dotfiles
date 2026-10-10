@@ -363,6 +363,32 @@ function _shelly_fetch_worker {
     printf '%s\x1f%s\n' "$id" "$summary"
 }
 
+# --- _shelly_raw_worker ---
+# @desc_short       : xargs worker: prints "id \x1f {status, config}" or "id \x1f offline".
+# @usage            : _shelly_raw_worker <id> <ip> <gen>
+# @desc_detailed    : The untouched API answers (Gen1 /status + /settings, Gen2+
+#                     Shelly.GetStatus + Shelly.GetConfig) for path lookups.
+# ================================================================================
+function _shelly_raw_worker {
+    local id="$1" ip="$2" gen="$3"
+    local path_status="/status" path_config="/settings"
+    local status config
+
+    # Gen2+ speak RPC
+    if (( gen >= 2 )); then
+        path_status="/rpc/Shelly.GetStatus"
+        path_config="/rpc/Shelly.GetConfig"
+    fi
+
+    # No status answer = offline; a missing config alone is not worth failing for
+    if ! status=$(shelly_http "$ip" "$path_status" "$gen"); then
+        printf '%s\x1foffline\n' "$id"
+        return 0
+    fi
+    config=$(shelly_http "$ip" "$path_config" "$gen") || config="null"
+    printf '%s\x1f%s\n' "$id" "$(jq -c -n --argjson s "$status" --argjson c "$config" '{status: $s, config: $c}')"
+}
+
 # --- shelly_fetch_all ---
 # @desc_short       : Fetches the live status of many devices in parallel and caches it.
 # @usage            : shelly_fetch_all <where-clause>   # e.g. "1=1" or "room='Garten'"
@@ -893,5 +919,5 @@ function shelly_model_text {
 # --option-cmd and xargs workers run in fresh bash processes.
 # ==============================================================================
 export -f shelly_sql get_shelly_devices get_shelly_rooms _shelly_curl shelly_http shelly_identity shelly_summary
-export -f _shelly_fetch_worker _shelly_probe_worker shelly_set1 shelly_rpc shelly_output_kind
+export -f _shelly_fetch_worker _shelly_raw_worker _shelly_probe_worker shelly_set1 shelly_rpc shelly_output_kind
 export FILE_SHELLY_DB TABLE_SHELLY TIMEOUT_SHELLY_HTTP SHELLY_AUTH_USER
