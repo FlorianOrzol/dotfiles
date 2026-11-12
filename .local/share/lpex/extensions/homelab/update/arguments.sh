@@ -25,6 +25,8 @@
 #                                      run waits for it and checks the device
 #                     --reboot-force | Reboot each target after its update
 #                                      unconditionally (wins over --reboot)
+#                     --no-snapshot  | Skip the pre-update snapshot of containers/VMs
+#                                      (hosts always snapshot inside update-os.sh)
 #                     --status-refresh     | Refresh the status of the updated
 #                                            devices on the share. This is the
 #                                            default already — passing it also
@@ -34,6 +36,10 @@
 #                                            are skipped, never woken — use
 #                                            --wake-up when they should come up.
 #
+# @notes            : Every container/VM gets a pre-update snapshot first
+#                     (snapshot-client.sh on its host, keeps 2) — no snapshot,
+#                     no update. Hosts snapshot rpool in update-os.sh, observers
+#                     (ext4) cannot.
 # @notes            : The pre-update power state is always restored: clients a host
 #                     reboot took down are started again. A result table closes
 #                     every run.
@@ -71,6 +77,8 @@ function arguments {
     arg_flag @reboot --description "Reboot targets after the update when apt demands it" \
         --depends-on "ARG_DEVICES"
     arg_flag @reboot_force --description "Reboot targets after the update unconditionally" \
+        --depends-on "ARG_DEVICES"
+    arg_flag @no_snapshot --description "Skip the pre-update snapshot of containers/VMs" \
         --depends-on "ARG_DEVICES"
 
     # 3. --- Status Refresh ------------------------------------------------------

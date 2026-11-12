@@ -10,12 +10,13 @@
 source "${PATH_EXTENSION}/_run.sh"
 source "${PATH_EXTENSION}/_power.sh"
 source "${PATH_EXTENSION}/_summary.sh"
+source "${PATH_EXTENSION}/_snapshot.sh"
 
 # ==============================================================================
 # --- extension_start ---
 # @desc_short  : Validates the device selection, expands groups into concrete
-#                targets and runs wake-up, update, reboot wait, status refresh
-#                and power-state restore per target.
+#                targets and runs wake-up, snapshot, update, reboot wait,
+#                status refresh and power-state restore per target.
 # ==============================================================================
 function extension_start {
     # At least one target group or device is required.
@@ -76,7 +77,20 @@ function extension_start {
             fi
         fi
 
-        # 2. --- Update ---------------
+        # 2. --- Snapshot ---------------
+        # ------ Rollback point before anything changes. Without one the target is
+        # ------ not updated — a dry-run changes nothing and needs none.
+        if [[ -z "$ARG_DRY_RUN" && -z "$ARG_NO_SNAPSHOT" ]]; then
+            if ! snapshot_before_update "$type" "$device" "$label"; then
+                SUMMARY_UPDATE["$label"]="skipped (no snapshot)"
+                any_error=1
+                continue
+            fi
+        elif [[ -n "$ARG_NO_SNAPSHOT" && "$type" != "host" ]]; then
+            SUMMARY_SNAPSHOT["$label"]="off"
+        fi
+
+        # 3. --- Update ---------------
         # ------ The boot token taken before the update tells a finished reboot apart
         # ------ from a device that simply still runs.
         local boot_token=""
@@ -91,7 +105,7 @@ function extension_start {
             *) SUMMARY_UPDATE["$label"]="FAILED"; any_error=1 ;;
         esac
 
-        # 3. --- Reboot wait + post-reboot check ---------------
+        # 4. --- Reboot wait + post-reboot check ---------------
         # ------ Waiting right here keeps the order safe: observer_1 is the wake
         # ------ authority and host_1 carries the clients updated later.
         local reboot_ok=1
@@ -102,7 +116,7 @@ function extension_start {
             SUMMARY_REBOOT["$label"]="not tracked"
         fi
 
-        # 4. --- Status refresh ---------------
+        # 5. --- Status refresh ---------------
         # ------ After the reboot wait, so the share shows the post-reboot state.
         if (( rc == 0 && do_refresh && reboot_ok )); then
             refresh_device_status "$type" "$device"
@@ -112,7 +126,7 @@ function extension_start {
             fi
         fi
 
-        # 5. --- Restore host power state ---------------
+        # 6. --- Restore host power state ---------------
         # ------ A host woken for this run goes down again — also after a reboot,
         # ------ which is complete and checked by now. An unfinished reboot leaves
         # ------ the host alone: shutting down mid-boot would be worse than running.

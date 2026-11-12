@@ -1,0 +1,13 @@
+Claude Code in CT 30100 — main session (tmux), status, logs, restart, update.
+
+  claude                 attach to the main session "Container Auto Session" (tmux)
+  claude attach --read-only   watch only, keystrokes are not sent
+  claude shell           plain shell in the container (user claude)
+  claude status          claude-status.sh: binary, sign-in, services, repos, disk
+  claude logs [--follow] journal of claude-tmux + claude-remote
+  claude restart         restart both services — ends open sessions (asks)
+  claude update          claude update + restart (asks)
+
+  Detach from tmux: Ctrl+b, then d — claude keeps running.
+  Same session in the app / claude.ai/code: environment "homelab".
+  Docs: ~/Dokumente/manuals/homelab/5_9_Clients_Claude*.md

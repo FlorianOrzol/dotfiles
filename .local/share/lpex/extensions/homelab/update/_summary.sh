@@ -14,6 +14,7 @@
 # ==============================================================================
 declare -ga SUMMARY_ORDER=()        # target labels in processing order
 declare -gA SUMMARY_BEFORE=()       # label → power state before the run
+declare -gA SUMMARY_SNAPSHOT=()     # label → pre-update snapshot result
 declare -gA SUMMARY_UPDATE=()       # label → update result
 declare -gA SUMMARY_REBOOT=()       # label → reboot result
 declare -gA SUMMARY_CHECK=()        # label → post-reboot check verdict
@@ -45,6 +46,7 @@ function summary_add {
     SUMMARY_ORDER+=("$label")
     SUMMARY_BEFORE["$label"]="$before"
     # Defaults — overwritten as soon as the step for this target has run
+    SUMMARY_SNAPSHOT["$label"]="-"
     SUMMARY_UPDATE["$label"]="not run"
     SUMMARY_REBOOT["$label"]="-"
     SUMMARY_CHECK["$label"]="-"
@@ -85,14 +87,15 @@ function summary_print {
 
     lx output --section "Update Summary"
     # Header line — same column widths as the rows below
-    printf '%b  %-12s %-18s %-20s %-16s %-30s %s%b\n' "${FONT_BOLD}" \
-        "DEVICE" "BEFORE" "UPDATE" "REBOOT" "POST-REBOOT CHECK" "AFTER" "${FONT_RESET}"
+    printf '%b  %-12s %-18s %-14s %-22s %-16s %-30s %s%b\n' "${FONT_BOLD}" \
+        "DEVICE" "BEFORE" "SNAPSHOT" "UPDATE" "REBOOT" "POST-REBOOT CHECK" "AFTER" "${FONT_RESET}"
 
     # One row per target — color is applied per cell after padding so widths stay intact
     for label in "${SUMMARY_ORDER[@]}"; do
-        printf "  %-12s %s %s %s %s %s\n" "$label" \
+        printf "  %-12s %s %s %s %s %s %s\n" "$label" \
             "$(_summary_cell 18 "${SUMMARY_BEFORE[$label]}")" \
-            "$(_summary_cell 20 "${SUMMARY_UPDATE[$label]}")" \
+            "$(_summary_cell 14 "${SUMMARY_SNAPSHOT[$label]}")" \
+            "$(_summary_cell 22 "${SUMMARY_UPDATE[$label]}")" \
             "$(_summary_cell 16 "${SUMMARY_REBOOT[$label]}")" \
             "$(_summary_cell 30 "${SUMMARY_CHECK[$label]}")" \
             "$(_summary_cell 0  "${SUMMARY_AFTER[$label]}")"
@@ -110,9 +113,9 @@ function _summary_cell {
     # Red: something needs attention; yellow: deviation worth a look; green: fine
     case "$value" in
         FAILED*|TIMEOUT*|"no answer"|*degraded*|unknown) color="$FONT_RED" ;;
-        skipped*|"no script"|"not run"|*starting*)         color="$FONT_YELLOW" ;;
-        ok|done*|online|running*)                          color="$FONT_GREEN" ;;
-        -|stopped|offline|"not needed"|dry-run)            color="$FONT_DIM" ;;
+        skipped*|"no script"|"not run"|*starting*|off)     color="$FONT_YELLOW" ;;
+        ok*|done*|online|running*|"by update-os")          color="$FONT_GREEN" ;;
+        -|stopped|offline|"not needed"|dry-run|n/a*)       color="$FONT_DIM" ;;
     esac
 
     printf '%b%-*s%b' "$color" "$width" "$value" "$FONT_RESET"

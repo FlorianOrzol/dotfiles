@@ -1,8 +1,8 @@
 -- ==============================================================================
 -- @meta_name        : conf/binds.lua
 -- @meta_author      : Florian Orzol
--- @meta_version     : 2.0.0
--- @meta_date        : 2026-08-10
+-- @meta_version     : 2.2.0
+-- @meta_date        : 2026-11-10
 --
 -- @desc_short       : All keyboard and mouse bindings.
 -- @desc_detailed    : Keeps the layout of the previous hyprland.conf. Bindings
@@ -25,11 +25,18 @@ local config = require("vd.config")
 local MOD         = "SUPER"          -- Main modifier
 local MOD_SHIFT   = "SUPER + SHIFT"  -- Same action, but taking the window along
 local MOD_ALT     = "SUPER + ALT"    -- Program launchers and hardware controls
+local MOD_ALT_SHIFT = "SUPER + ALT + SHIFT"  -- Variants of the launcher bindings
 
 local CMD_TERMINAL     = "kitty"
 local CMD_FILE_MANAGER = "dolphin"
 local CMD_MENU         = "wofi --show drun"
 local CMD_BROWSER      = "google-chrome-stable"
+
+-- Region screenshot: slurp selects the area, grim writes it with a timestamp name.
+local CMD_SCREENSHOT   = 'grim -g "$(slurp)" "$HOME/screenshots/$(date +%Y-%m-%d-%H-%M-%S)-screenshot-chose.png"'
+
+-- Window screenshot: hyprctl reports the focused window geometry, grim captures it.
+local CMD_SCREENSHOT_WINDOW = 'grim -g "$(hyprctl -j activewindow | jq -r \'"\\(.at[0]),\\(.at[1]) \\(.size[0])x\\(.size[1])"\')" "$HOME/screenshots/$(date +%Y-%m-%d-%H-%M-%S)-screenshot-window.png"'
 
 -- Highest virtual desktop reachable through the function-key row.
 local COUNT_DESKTOP_KEYS = 12
@@ -45,6 +52,8 @@ hl.bind(MOD_ALT .. " + D", hl.dsp.exec_cmd(CMD_MENU))
 hl.bind(MOD_ALT .. " + T", hl.dsp.exec_cmd(CMD_TERMINAL))
 hl.bind(MOD_ALT .. " + E", hl.dsp.exec_cmd(CMD_FILE_MANAGER))
 hl.bind(MOD_ALT .. " + G", hl.dsp.exec_cmd(CMD_BROWSER))
+hl.bind(MOD_ALT .. " + S", hl.dsp.exec_cmd(CMD_SCREENSHOT))
+hl.bind(MOD_ALT_SHIFT .. " + S", hl.dsp.exec_cmd(CMD_SCREENSHOT_WINDOW))
 
 -- ==============================================================================
 -- --- Window Management ---
